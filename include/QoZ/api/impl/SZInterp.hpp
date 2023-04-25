@@ -900,8 +900,8 @@ double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double samp
 
     QoZ::Config conf(1);//maybe a better way exist?
     conf.setDims(dims.begin(),dims.end());
-    conf.sperr=1;
-    conf.wavelet=1;
+   // conf.sperr=1;
+    //conf.wavelet=1;
     conf.wavelet_rel_coeff=1.5;
     conf.profiling=profiling;
     conf.var_first=var_first;
@@ -964,7 +964,7 @@ char *SZ_compress_Interp_lorenzo(QoZ::Config &conf, T *data, size_t &outSize) {
     QoZ::calAbsErrorBound(conf, data);
 
     double sample_rate=0.01;
-    size_t blocksize=16;
+    size_t blocksize=32;
     std::cout<<"estimated cr:"<<estimateSPERRCRbasedonErrorBound<T,N>(conf.absErrorBound,data,sample_rate,blocksize,conf.dims);
     outSize=1;
     char * out=new char[1+conf.size_est()+1000];
