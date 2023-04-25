@@ -908,7 +908,7 @@ double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double samp
     conf.var_first=var_first;
     conf.sampleBlockSize=blocksize;
     conf.cmprAlgo=QoZ::ALGO_INTERP;
-    conf.tuningTarget=QoZ::TUNING_TARGET_RD;
+    conf.tuningTarget=QoZ::TUNING_TARGET_CR;
     conf.errorBoundMode=QoZ::EB_ABS;
     conf.absErrorBound=error_bound;
     size_t totalblock_num=1;  
@@ -939,7 +939,7 @@ double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double samp
     //per_block_ele_num=pow(sampleBlockSize+1,N);
    // ele_num=num_sampled_blocks*per_block_ele_num;
 
-    std::pair<double,double> results=CompressTest<T,N>(conf, sampled_blocks,QoZ::ALGO_INTERP,QoZ::TUNING_TARGET_CR,false);
+    std::pair<double,double> results=CompressTest<T,N>(conf, sampled_blocks,QoZ::ALGO_INTERP,QoZ::TUNING_TARGET_RD,false);
 
     double cur_ratio=sizeof(T)*8.0/results.first;
     //double cur_ratio=0.5;
@@ -966,7 +966,7 @@ char *SZ_compress_Interp_lorenzo(QoZ::Config &conf, T *data, size_t &outSize) {
 
     double sample_rate=0.01;
     size_t blocksize=32;
-    std::cout<<"estimated cr:"<<estimateSPERRCRbasedonErrorBound<T,N>(conf.absErrorBound,data,sample_rate,blocksize,conf.dims);
+    std::cout<<"estimated cr:"<<estimateSPERRCRbasedonErrorBound<T,N>(conf.absErrorBound,data,sample_rate,blocksize,conf.dims)<<std::endl;;
     outSize=1;
     char * out=new char[1+conf.size_est()+1000];
     out[0]=0;
