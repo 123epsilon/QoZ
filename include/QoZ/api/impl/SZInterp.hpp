@@ -937,8 +937,9 @@ double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double samp
    // ele_num=num_sampled_blocks*per_block_ele_num;
 
     std::pair<double,double> results=CompressTest<T,N>(conf, sampled_blocks,QoZ::ALGO_INTERP,QoZ::TUNING_TARGET_CR,false);
-    std::cout<<"t4"<<std::endl;
+
     double cur_ratio=sizeof(T)*8.0/results.first;
+    std::cout<<"t4 "<<cur_ratio<<std::endl;
 
     return cur_ratio;
 
