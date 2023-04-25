@@ -691,7 +691,9 @@ std::pair<double,double> CompressTest(const QoZ::Config &conf,const std::vector<
         char *cmprData;
         if(use_sperr<T,N>(testConfig)){
             if(testConfig.wavelet<=1){
+
                 cmprData=SPERR_Compress<T,N>(testConfig,cur_block.data(),sampleOutSize);
+                std::cout<<"1 "<<"sampleOutSize"<<std::endl;
                 totalOutSize+=sampleOutSize;
                 if(tuningTarget!=QoZ::TUNING_TARGET_CR){
                     SPERR_Decompress<T,N>(cmprData,sampleOutSize,cur_block.data());
