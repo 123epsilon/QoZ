@@ -911,6 +911,8 @@ double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double samp
     conf.tuningTarget=QoZ::TUNING_TARGET_CR;
     conf.errorBoundMode=QoZ::EB_ABS;
     conf.absErrorBound=error_bound;
+    if (conf.rng<0)
+        conf.rng=QoZ::data_range<T>(data,conf.num);
     size_t totalblock_num=1;  
     for(int i=0;i<N;i++){                      
         totalblock_num*=(size_t)((conf.dims[i]-1)/conf.sampleBlockSize);
