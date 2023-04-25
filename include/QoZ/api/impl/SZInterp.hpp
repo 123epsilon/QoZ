@@ -936,8 +936,13 @@ double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double samp
     //std::cout<<"t3 "<<sampled_blocks.size()<<std::endl;
            
     //num_sampled_blocks=sampled_blocks.size();
-    //per_block_ele_num=pow(sampleBlockSize+1,N);
+    size_t per_block_ele_num=pow(sampleBlockSize+1,N);
    // ele_num=num_sampled_blocks*per_block_ele_num;
+
+    std::vector<size_t> blockdims(sampleBlockSize+1,N);
+    conf.setDims(blockdims.begin(),blockdims,end());
+    std::cout<<conf.num<<std::endl;
+
 
     std::pair<double,double> results=CompressTest<T,N>(conf, sampled_blocks,QoZ::ALGO_INTERP,QoZ::TUNING_TARGET_RD,false);
 
