@@ -939,8 +939,9 @@ double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double samp
     size_t per_block_ele_num=pow(blocksize+1,N);
    // ele_num=num_sampled_blocks*per_block_ele_num;
 
-    std::vector<size_t> blockdims(blocksize+1,N);
+    std::vector<size_t> blockdims(N,blocksize+1);
     conf.setDims(blockdims.begin(),blockdims.end());
+    std::cout<<per_block_ele_num<<std::endl;
     std::cout<<conf.num<<std::endl;
 
 
