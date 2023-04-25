@@ -2,8 +2,6 @@ cmake_minimum_required(VERSION 3.13)
 project(QoZ VERSION 0.1.0.0)
 include(GNUInstallDirs)
 include(CTest)
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_C_STANDARD 17)
 
 option(BUILD_SHARED_LIBS "build shared libraries by default" ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
