@@ -693,7 +693,7 @@ std::pair<double,double> CompressTest(const QoZ::Config &conf,const std::vector<
             if(testConfig.wavelet<=1){
 
                 cmprData=SPERR_Compress<T,N>(testConfig,cur_block.data(),sampleOutSize);
-               // std::cout<<k<<" "<<sampleOutSize<<std::endl;
+        
                 totalOutSize+=sampleOutSize;
                 if(tuningTarget!=QoZ::TUNING_TARGET_CR){
                     SPERR_Decompress<T,N>(cmprData,sampleOutSize,cur_block.data());
@@ -884,7 +884,7 @@ std::pair<double,double> CompressTest(const QoZ::Config &conf,const std::vector<
         bitrate*=testConfig.lorenzoBrFix;
     }
     delete sz;
-    std::cout<<bitrate<<" "<<metric<<std::endl;
+    //std::cout<<bitrate<<" "<<metric<<std::endl;
     return std::pair(bitrate,metric);
 }
 
@@ -911,13 +911,13 @@ double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double samp
     conf.tuningTarget=QoZ::TUNING_TARGET_CR;
     conf.errorBoundMode=QoZ::EB_ABS;
     conf.absErrorBound=error_bound;
-    if (conf.rng<0)
-        conf.rng=QoZ::data_range<T>(data,conf.num);
+    //if (conf.rng<0)
+     //   conf.rng=QoZ::data_range<T>(data,conf.num);
     size_t totalblock_num=1;  
     for(int i=0;i<N;i++){                      
         totalblock_num*=(size_t)((conf.dims[i]-1)/conf.sampleBlockSize);
     }
-   // std::cout<<"t1 "<<conf.absErrorBound<<std::endl;
+
 
     std::vector<std::vector<size_t> >starts;
     if(conf.profiling){      
@@ -930,12 +930,12 @@ double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double samp
         }
        
     }
-    //std::cout<<"t2"<<std::endl;
+  
 
     size_t num_filtered_blocks=starts.size();
 
     sampleBlocks<T,N>(data,conf.dims,conf.sampleBlockSize,sampled_blocks,sample_rate,conf.profiling,starts,conf.var_first);
-    //std::cout<<"t3 "<<sampled_blocks.size()<<std::endl;
+   
            
     //num_sampled_blocks=sampled_blocks.size();
     size_t per_block_ele_num=pow(blocksize+1,N);
@@ -943,15 +943,14 @@ double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double samp
 
     std::vector<size_t> blockdims(N,blocksize+1);
     conf.setDims(blockdims.begin(),blockdims.end());
-    std::cout<<per_block_ele_num<<std::endl;
-    std::cout<<conf.num<<std::endl;
+   
 
 
-    std::pair<double,double> results=CompressTest<T,N>(conf, sampled_blocks,QoZ::ALGO_INTERP,QoZ::TUNING_TARGET_RD,false);
+    std::pair<double,double> results=CompressTest<T,N>(conf, sampled_blocks,QoZ::ALGO_INTERP,QoZ::TUNING_TARGET_CR,false);
 
     double cur_ratio=sizeof(T)*8.0/results.first;
-    //double cur_ratio=0.5;
-    //std::cout<<"t4 "<<cur_ratio<<std::endl;
+  
+    
 
     return cur_ratio;
 
