@@ -964,8 +964,8 @@ char *SZ_compress_Interp_lorenzo(QoZ::Config &conf, T *data, size_t &outSize) {
     double sample_rate=0.01;
     size_t blocksize=32;
     std::cout<<"estimated cr:"<<estimateSPERRCRbasedonErrorBound<T,N>(conf.absErrorBound,data,sample_rate,blocksize,conf.dims);
-    outSize=1;
-    char * out=std::to_string("a");
+    outSize=2;
+    char * out="a".c_str();
     
     return out;
 
