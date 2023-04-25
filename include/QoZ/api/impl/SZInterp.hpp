@@ -912,10 +912,10 @@ double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double samp
     for(int i=0;i<N;i++){                      
         totalblock_num*=(size_t)((conf.dims[i]-1)/conf.sampleBlockSize);
     }
-    std::cout<<"t1"<<std::endl;
+    std::cout<<"t1 "<<conf.absErrorBound<<std::endl;
 
     std::vector<std::vector<size_t> >starts;
-    if((conf.waveletTuningRate>0 or conf.autoTuningRate>0 or conf.predictorTuningRate>0) and conf.profiling){      
+    if(conf.profiling){      
         conf.profStride=conf.sampleBlockSize/4;
         if(N==2){
             QoZ::profiling_block_2d<T,N>(data,conf.dims,starts,blocksize,conf.absErrorBound,conf.profStride);
@@ -930,15 +930,16 @@ double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double samp
     size_t num_filtered_blocks=starts.size();
 
     sampleBlocks<T,N>(data,conf.dims,conf.sampleBlockSize,sampled_blocks,sample_rate,conf.profiling,starts,conf.var_first);
-    std::cout<<"t3"<<std::endl;
+    std::cout<<"t3 "<<sampled_blocks.size()<<std::endl;
            
     //num_sampled_blocks=sampled_blocks.size();
     //per_block_ele_num=pow(sampleBlockSize+1,N);
    // ele_num=num_sampled_blocks*per_block_ele_num;
 
-    std::pair<double,double> results=CompressTest<T,N>(conf, sampled_blocks,QoZ::ALGO_INTERP,QoZ::TUNING_TARGET_CR,false);
+    //std::pair<double,double> results=CompressTest<T,N>(conf, sampled_blocks,QoZ::ALGO_INTERP,QoZ::TUNING_TARGET_CR,false);
 
-    double cur_ratio=sizeof(T)*8.0/results.first;
+   // double cur_ratio=sizeof(T)*8.0/results.first;
+    double cur_ratio=0.5;
     std::cout<<"t4 "<<cur_ratio<<std::endl;
 
     return cur_ratio;
