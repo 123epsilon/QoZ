@@ -36,7 +36,7 @@
 #include <limits>
 #include <cstring>
 #include <cstdlib>
-namespace py = pybind11;
+//namespace py = pybind11;
 
 
 template<class T, QoZ::uint N>
@@ -888,15 +888,15 @@ std::pair<double,double> CompressTest(const QoZ::Config &conf,const std::vector<
 
 
 template<class T, QoZ::uint N> 
-double estimateSPERRCRbasedonErrorBound(T error_bound,T * data, double sample_rate, size_t blocksize,std::vector<size_t> &dims,int profiling=0,int var_first=0){
+double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double sample_rate, size_t blocksize,std::vector<size_t> &dims,int profiling=0,int var_first=0){
 
     std::vector< std::vector<T> > sampled_blocks;
-    size_t sampleBlockSize=conf.sampleBlockSize;
+   
     //size_t num_sampled_blocks;
     //size_t per_block_ele_num;
     //size_t ele_num;
 
-    QoZ::config conf(1);//maybe a better way exist?
+    QoZ::Config conf(1);//maybe a better way exist?
     conf.setDims(dims.begin(),dims.end());
     conf.sperr=1;
     conf.wavelet=1;
@@ -905,7 +905,7 @@ double estimateSPERRCRbasedonErrorBound(T error_bound,T * data, double sample_ra
     conf.var_first=var_first;
     conf.sampleBlockSize=blocksize;
     conf.algo=QoZ::ALGO_INTERP;
-    conf.tuningTarget=TUNING_TARGET_CR;
+    conf.tuningTarget=QoZ::TUNING_TARGET_CR;
     conf.errorBoundMode=QoZ::EB_ABS;
     conf.absErrorBound=error_bound;
     size_t totalblock_num=1;  
@@ -928,7 +928,7 @@ double estimateSPERRCRbasedonErrorBound(T error_bound,T * data, double sample_ra
 
     size_t num_filtered_blocks=starts.size();
 
-    sampleBlocks<T,N>(data,conf.dims,sampleBlockSize,sampled_blocks,sample_rate,conf.profiling,starts,conf.var_first);
+    sampleBlocks<T,N>(data,conf.dims,conf.sampleBlockSize,sampled_blocks,sample_rate,conf.profiling,starts,conf.var_first);
            
     //num_sampled_blocks=sampled_blocks.size();
     //per_block_ele_num=pow(sampleBlockSize+1,N);
@@ -958,7 +958,7 @@ char *SZ_compress_Interp_lorenzo(QoZ::Config &conf, T *data, size_t &outSize) {
 
     double sample_rate=0.01;
     size_t blocksize=32;
-    std::cout<<"estimated cr:"<<estimateSPERRCRbasedonErrorBound(conf.absErrorBound,data,sample_rate,blocksize,conf.dims);
+    std::cout<<"estimated cr:"<<estimateSPERRCRbasedonErrorBound<T,N>(conf.absErrorBound,data,sample_rate,blocksize,conf.dims);
     outSize=1;
     char * out=new char[1];
     out[0]='a';
