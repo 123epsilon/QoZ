@@ -8,10 +8,10 @@
 #include <gsl/gsl_wavelet.h>
 #endif
 #include "QoZ/utils/FileUtil.hpp"
-#include <pybind11/embed.h>
-#include <pybind11/numpy.h>
-#include <pybind11/stl.h>
-namespace py = pybind11;
+//#include <pybind11/embed.h>
+//#include <pybind11/numpy.h>
+//#include <pybind11/stl.h>
+//namespace py = pybind11;
 namespace QoZ {
 
 
@@ -140,148 +140,7 @@ namespace QoZ {
     }
 
 
-    template<class T, QoZ::uint N>
-    T * pybind_wavelet_preprocessing(QoZ::Config &conf,T *data, std::string & metadata, int wave_type=2,bool inplace=true,std::vector<size_t> &coeffs_size=std::vector<size_t>())
-    {
-        try{
-            if(!conf.pybind_activated){
-                conf.pybind_activated=true;
-                py::initialize_interpreter();
-            }
-
-           // QoZ::Timer temptimer(true);
-            std::string HOME = "/home/jinyang.liu";
-            py::module_::import("sys").attr("path").attr("append")(HOME + "/QoZ/include/QoZ/preprocessor");
-            auto pyModule=py::module_::import("pywt_wrapper");
-            //if(conf.verbose)
-           //     temptimer.stop("Pybind import");
-
-
-            std::string wavetype;
-            /*Interp
-            if (wave_type==2)
-                wavetype="sym16";//rtms
-            else if(wave_type==3)
-                wavetype="bior3.1";//miranda scale
-            else if(wave_type==4)
-                wavetype="bior4.4";//nyx (hurricane)
-            else if(wave_type==5)
-                wavetype="coif6";//qmcpack
-            else
-                wavetype="bior6.8";//hurricane
-            */
-
-            
-            if (wave_type==2)
-                wavetype="sym13";//rtms,hurricane,nyx,miranda
-            else if(wave_type==3)
-                wavetype="bior3.3";//qmcpack
-            else if(wave_type==4)
-                wavetype="bior4.4";//scale
-           
-            py::array_t<T> ori_data_py(conf.dims, data);
-            py::array_t<T> dwt_data = pyModule.attr("dwt")(ori_data_py, wavetype);
-            metadata = pyModule.attr("dwt_structure")().cast<std::string>();
-         
-            
-
-            if(inplace){
-                memcpy(data,dwt_data.data(),conf.num*sizeof(T));
-                return data;
-            }
-            else{
-                coeffs_size.assign(dwt_data.shape(),dwt_data.shape()+N);
-                size_t coeffs_num = 1;
-                for (size_t i = 0; i < N; i++)
-                    coeffs_num *= coeffs_size[i];
-                
-                T *coeffData = new T[coeffs_num];
-                memcpy(coeffData,dwt_data.data(),coeffs_num*sizeof(T));
-            
-                return coeffData;
-
-            }
-        }
-        catch (const std::exception& e) // caught by reference to base
-        {
-            std::cout << " a standard exception was caught, with message '"
-                      << e.what() << "'\n";
-        }
-        return NULL;
-
-    }
-
-    template<class T, QoZ::uint N>
-    T * pybind_wavelet_postprocessing(QoZ::Config &conf, T *data, std::string metadata, int wave_type=2, bool inplace=true,const std::vector<size_t> &output_dims=std::vector<size_t>())
-    {   
-        try{
-            if(!conf.pybind_activated){
-                conf.pybind_activated=true;
-                py::initialize_interpreter();
-            }
-            //QoZ::Timer temptimer(true);
-            std::string HOME = "/home/jinyang.liu";
-            py::module_::import("sys").attr("path").attr("append")(HOME + "/QoZ/include/QoZ/preprocessor");
-            auto pyModule=py::module_::import("pywt_wrapper");
-            //if(conf.verbose)
-            //    temptimer.stop("Pybind import");
-
-
-            std::string wavetype;
-            /*Interp
-            if (wave_type==2)
-                wavetype="sym16";//rtms
-            else if(wave_type==3)
-                wavetype="bior3.1";//miranda scale
-            else if(wave_type==4)
-                wavetype="bior4.4";//nyx (hurricane)
-            else if(wave_type==5)
-                wavetype="coif6";//qmcpack
-            else
-                wavetype="bior6.8";//hurricane
-            */
-
-            
-            if (wave_type==2)
-                wavetype="sym13";//rtms,hurricane,nyx,miranda
-            else if(wave_type==3)
-                wavetype="bior3.3";//qmcpack
-            else if(wave_type==4)
-                wavetype="bior4.4";//scale
-           // std::cout<<"i1"<<std::endl;
-            py::array_t<T> dwt_data(conf.dims, data);
-            py::array_t<float> idwt_data;
-            //std::cout<<"i2"<<std::endl;
-            if(inplace){
-                idwt_data = pyModule.attr("idwt")(dwt_data, py::bytes(metadata), wavetype,conf.dims);
-                memcpy(data,idwt_data.data(),conf.num*sizeof(T));
-                return data;
-            }
-            else{
-                idwt_data = pyModule.attr("idwt")(dwt_data, py::bytes(metadata), wavetype,output_dims);
-                //std::cout<<"i3"<<std::endl;
-                size_t outnum=1;
-                for (size_t i = 0; i < N; i++)
-                    outnum *= output_dims[i];
-
-                T *outData = new T[outnum];
-                memcpy(outData,idwt_data.data(),outnum*sizeof(T));
-               //std::cout<<"i4"<<std::endl;
-                
-                return outData;
-            }
-        }
-        catch (const std::exception& e) // caught by reference to base
-        {
-            std::cout << " a standard exception was caught, with message '"
-                      << e.what() << "'\n";
-        }
-        return NULL;
-        
-        
-
-
-    }
+    
    
     template<class T, uint N>
 
