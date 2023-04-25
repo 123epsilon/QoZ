@@ -904,23 +904,23 @@ double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double samp
     conf.profiling=profiling;
     conf.var_first=var_first;
     conf.sampleBlockSize=blocksize;
-    conf.algo=QoZ::ALGO_INTERP;
+    conf.cmprAlgo=QoZ::ALGO_INTERP;
     conf.tuningTarget=QoZ::TUNING_TARGET_CR;
     conf.errorBoundMode=QoZ::EB_ABS;
     conf.absErrorBound=error_bound;
     size_t totalblock_num=1;  
     for(int i=0;i<N;i++){                      
-        totalblock_num*=(size_t)((conf.dims[i]-1)/sampleBlockSize);
+        totalblock_num*=(size_t)((conf.dims[i]-1)/conf.sampleBlockSize);
     }
 
     std::vector<std::vector<size_t> >starts;
     if((conf.waveletTuningRate>0 or conf.autoTuningRate>0 or conf.predictorTuningRate>0) and conf.profiling){      
         conf.profStride=conf.sampleBlockSize/4;
         if(N==2){
-            QoZ::profiling_block_2d<T,N>(data,conf.dims,starts,sampleBlockSize,conf.absErrorBound,conf.profStride);
+            QoZ::profiling_block_2d<T,N>(data,conf.dims,starts,blocksize,conf.absErrorBound,conf.profStride);
         }
         else if (N==3){
-            QoZ::profiling_block_3d<T,N>(data,conf.dims,starts,sampleBlockSize,conf.absErrorBound,conf.profStride);
+            QoZ::profiling_block_3d<T,N>(data,conf.dims,starts,blocksize,conf.absErrorBound,conf.profStride);
         }
        
     }
