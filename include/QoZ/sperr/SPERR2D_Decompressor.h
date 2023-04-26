@@ -69,8 +69,8 @@ auto SPERR2D_Decompressor::use_bitstream(const void* p, size_t len) -> RTNType
   const uint8_t* u8p = static_cast<const uint8_t*>(p);
 
   // Task 1)
-  if (*u8p != static_cast<uint8_t>(SPERR_VERSION_MAJOR))
-    return RTNType::VersionMismatch;
+  //if (*u8p != static_cast<uint8_t>(SPERR_VERSION_MAJOR))
+  //  return RTNType::VersionMismatch;
   u8p += 1;
 
   // Task 2)
@@ -78,6 +78,7 @@ auto SPERR2D_Decompressor::use_bitstream(const void* p, size_t len) -> RTNType
   u8p += 1;
   if (metabool[1] == true)  // true means it's 3D
     return RTNType::SliceVolumeMismatch;
+
   const auto has_sperr = metabool[3];
 
   // Task 3)
@@ -96,7 +97,7 @@ auto SPERR2D_Decompressor::use_bitstream(const void* p, size_t len) -> RTNType
     return RTNType::BitstreamWrongLen;
 
     // Task 4)
-#ifdef USE_ZSTD
+//#ifdef USE_ZSTD
   if (metabool[0] == false)
     return RTNType::ZSTDMismatch;
 
@@ -112,15 +113,16 @@ auto SPERR2D_Decompressor::use_bitstream(const void* p, size_t len) -> RTNType
   // Redirect `u8p` to point to the beginning of conditioning stream
   u8p = content_buf.get();
   plen = content_size;
-#else
-  if (metabool[0] == true)
-    return RTNType::ZSTDMismatch;
-#endif
+//#else
+//  if (metabool[0] == true)
+//    return RTNType::ZSTDMismatch;
+//#endif
 
   // Task 5)
   const auto condi_size = m_conditioner.header_size(u8p);
   if (condi_size > plen)
     return RTNType::BitstreamWrongLen;
+ 
   m_condi_stream.resize(condi_size);
   std::copy(u8p, u8p + condi_size, m_condi_stream.begin());
   u8p += condi_size;
@@ -139,6 +141,7 @@ auto SPERR2D_Decompressor::use_bitstream(const void* p, size_t len) -> RTNType
   const auto speck_size = m_decoder.get_speck_stream_size(u8p);
   if (speck_size > plen)
     return RTNType::BitstreamWrongLen;
+
   m_speck_stream.resize(speck_size);
   std::copy(u8p, u8p + speck_size, m_speck_stream.begin());
   u8p += speck_size;
@@ -151,14 +154,15 @@ auto SPERR2D_Decompressor::use_bitstream(const void* p, size_t len) -> RTNType
     const auto sperr_size = m_sperr.get_sperr_stream_size(u8p);
     if (sperr_size != plen)
       return RTNType::BitstreamWrongLen;
+
     m_sperr_stream.resize(sperr_size);
     std::copy(u8p, u8p + sperr_size, m_sperr_stream.begin());
   }
   else {
     if (plen != 0)
       return RTNType::BitstreamWrongLen;
-  }
 
+  }
   return RTNType::Good;
 }
 
@@ -213,12 +217,26 @@ auto SPERR2D_Decompressor::decompress() -> RTNType
   auto decoder_out = m_decoder.release_data();
   if (decoder_out.size() != total_vals)
     return RTNType::Error;
-  m_cdf.take_data(std::move(decoder_out), m_dims);
-  m_cdf.idwt2d();
 
-  // Step 3: Inverse Conditioning
-  m_val_buf = m_cdf.release_data();
-  m_conditioner.inverse_condition(m_val_buf, m_dims, m_condi_stream);
+  auto b8=sperr::unpack_8_booleans(m_condi_stream[0]);
+
+  bool skip_wave=b8[2];
+
+  if(!skip_wave){
+
+  
+  
+    m_cdf.take_data(std::move(decoder_out), m_dims);
+    m_cdf.idwt2d();
+
+    // Step 3: Inverse Conditioning
+    m_val_buf = m_cdf.release_data();
+    m_conditioner.inverse_condition(m_val_buf, m_dims, m_condi_stream);
+  }
+  else{
+    m_val_buf.resize(decoder_out.size());
+    std::copy(decoder_out.begin(), decoder_out.end(), m_val_buf.begin());
+  }
 
   // Step 4: if there's SPERR stream, then do outlier correction.
   if (!m_sperr_stream.empty()) {

@@ -475,7 +475,7 @@ namespace QoZ {
                 return buffer;
             }
             if(peTracking){
-                QoZ::writefile<T>("interp_pred.errors", prediction_errors.data(),prediction_errors.size());//added.
+                QoZ::writefile<float>("interp_pred.errors", prediction_errors.data(),prediction_errors.size());//added.
 
             }
             if(conf.verbose)

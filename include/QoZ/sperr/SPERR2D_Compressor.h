@@ -45,6 +45,10 @@ class SPERR2D_Compressor {
   auto view_encoded_bitstream() const -> const std::vector<uint8_t>&;
   auto release_encoded_bitstream() -> std::vector<uint8_t>&&;
 
+  void set_eb_coeff(const double & coeff);
+
+  void set_skip_wave(const bool & skip);
+
  private:
   sperr::dims_type m_dims = {0, 0, 0};
   sperr::vecd_type m_val_buf;
@@ -54,6 +58,10 @@ class SPERR2D_Compressor {
   size_t m_bit_budget = 0;  // Total bit budget, including headers.
   double m_target_psnr = sperr::max_d;
   double m_target_pwe = 0.0;
+  double eb_coeff=1.5;
+  bool skip_wave=false;
+
+
   bool m_orig_is_float = true;  // Is the original input float (true) or double (false)?
 
   // A few data members for outlier correction
@@ -77,6 +85,15 @@ class SPERR2D_Compressor {
 
   auto m_assemble_encoded_bitstream() -> RTNType;
 };
+
+void SPERR2D_Compressor::set_skip_wave(const bool & skip){
+  skip_wave=skip;
+}
+
+
+void SPERR2D_Compressor::set_eb_coeff(const double & coeff){
+  eb_coeff=coeff;
+}
 
 
 template <typename T>
@@ -195,44 +212,61 @@ auto SPERR2D_Compressor::compress() -> RTNType
   }
 
   // Step 1: data goes through the conditioner
-  m_condi_stream = m_conditioner.condition(m_val_buf, m_dims);
-  // Step 1.1: Believe it or not, there are constant fields passed in for compression!
-  // Let's detect that case and skip the rest of the compression routine if it occurs.
-  if (m_conditioner.is_constant(m_condi_stream[0])) {
-    auto rtn = m_assemble_encoded_bitstream();
-    return rtn;
-  }
+  if(!skip_wave){
+    m_condi_stream = m_conditioner.condition(m_val_buf, m_dims);
+    // Step 1.1: Believe it or not, there are constant fields passed in for compression!
+    // Let's detect that case and skip the rest of the compression routine if it occurs.
+    if (m_conditioner.is_constant(m_condi_stream[0])) {
+      auto rtn = m_assemble_encoded_bitstream();
+      return rtn;
+    }
 
-  if (mode == sperr::CompMode::FixedPSNR) {
-    // Calculate data range using the conditioned data, and pass it to the encoder.
-    //to tell the truth should add a way to pass the pre-calculated range.
-    auto [min, max] = std::minmax_element(m_val_buf.cbegin(), m_val_buf.cend());
-    auto range = *max - *min;
-    m_encoder.set_data_range(range);
-  }
-  else if (mode == sperr::CompMode::FixedPWE &&
-           m_conditioner.has_custom_filter(m_condi_stream[0])) {
-    // Only re-calculate data range when there's custom filter enabled in the conditioner.
-    auto [min, max] = std::minmax_element(m_val_buf.cbegin(), m_val_buf.cend());
-    range_after = *max - *min;
-  }
+    if (mode == sperr::CompMode::FixedPSNR) {
+      // Calculate data range using the conditioned data, and pass it to the encoder.
+      //to tell the truth should add a way to pass the pre-calculated range.
+      auto [min, max] = std::minmax_element(m_val_buf.cbegin(), m_val_buf.cend());
+      auto range = *max - *min;
+      m_encoder.set_data_range(range);
+    }
+    else if (mode == sperr::CompMode::FixedPWE &&
+             m_conditioner.has_custom_filter(m_condi_stream[0])) {
+      // Only re-calculate data range when there's custom filter enabled in the conditioner.
+      auto [min, max] = std::minmax_element(m_val_buf.cbegin(), m_val_buf.cend());
+      range_after = *max - *min;
+    }
 
-  // Step 2: wavelet transform
-  auto rtn = m_cdf.take_data(std::move(m_val_buf), m_dims);
-  if (rtn != RTNType::Good)
-    return rtn;
-  m_cdf.dwt2d();
+    // Step 2: wavelet transform
+    auto rtn = m_cdf.take_data(std::move(m_val_buf), m_dims);
+    if (rtn != RTNType::Good)
+      return rtn;
+    m_cdf.dwt2d();
 
-  // Step 3: SPECK encoding
-  rtn = m_encoder.take_data(m_cdf.release_data(), m_dims);
-  if (rtn != RTNType::Good)
-    return rtn;
+    // Step 3: SPECK encoding
+    rtn = m_encoder.take_data(m_cdf.release_data(), m_dims);
+    if (rtn != RTNType::Good)
+      return rtn;
+  }
+  else{
+    // Step 1: Direct SPECK encoding
+    //const auto & coeffs=m_cdf.release_data();
+
+    //sperr::write_n_bytes("sperr.dwt",coeffs.size()*sizeof(double),coeffs.data());
+    const auto header_size = 1 + sizeof(double) + 0;//0 is the custom filter header size.
+    m_condi_stream.resize(header_size,0);
+    auto b8=sperr::unpack_8_booleans(m_condi_stream[0]);
+    b8[2]=true;
+    m_condi_stream[0]=sperr::pack_8_booleans(b8);
+    auto rtn = m_encoder.take_data(std::move(m_val_buf), m_dims);
+    if (rtn != RTNType::Good)
+      return rtn;
+  }
 
   auto speck_bit_budget = size_t{0};
   if (m_bit_budget == sperr::max_size)
     speck_bit_budget = sperr::max_size;
   else
     speck_bit_budget = m_bit_budget - (m_meta_size + m_condi_stream.size()) * 8;
+  m_encoder.set_eb_coeff(eb_coeff);
 
   // In the FixedPWE mode, in case there's custom filter, we scale the PWE tolerance
   auto speck_pwe = m_target_pwe;
@@ -241,7 +275,7 @@ auto SPERR2D_Compressor::compress() -> RTNType
     speck_pwe *= range_after / range_before;
   }
 
-  m_encoder.set_comp_params(speck_bit_budget, m_target_psnr, speck_pwe);
+  auto rtn=m_encoder.set_comp_params(speck_bit_budget, m_target_psnr, speck_pwe);
   if (rtn != RTNType::Good)
     return rtn;
 
@@ -254,7 +288,7 @@ auto SPERR2D_Compressor::compress() -> RTNType
     return RTNType::Error;
 
   // Step 4: Outlier correction if in FixedPWE mode.
-  if (mode == sperr::CompMode::FixedPWE) {
+  if (mode == sperr::CompMode::FixedPWE and !skip_wave) {
     // Step 4.1: IDWT using quantized coefficients to have a reconstruction.
     auto qz_coeff = m_encoder.release_quantized_coeff();
     assert(!qz_coeff.empty());
@@ -291,6 +325,8 @@ auto SPERR2D_Compressor::compress() -> RTNType
 
 auto SPERR2D_Compressor::m_assemble_encoded_bitstream() -> RTNType
 {
+
+  
   // This method does 3 things:
   // 1) prepend a proper header containing meta data.
   // 2) assemble conditioner, SPECK, and possibly SPERR bitstreams together.
@@ -308,12 +344,12 @@ auto SPERR2D_Compressor::m_assemble_encoded_bitstream() -> RTNType
   // bool_byte[3-7]: unused
   //
   auto meta = std::vector<uint8_t>(m_meta_size, 0);
-  meta[0] = static_cast<uint8_t>(SPERR_VERSION_MAJOR);
+  meta[0] = 0;//static_cast<uint8_t>(SPERR_VERSION_MAJOR);
   auto metabool = std::array<bool, 8>{false, false, false, false, false, false, false, false};
 
-#ifdef USE_ZSTD
+//#ifdef USE_ZSTD
   metabool[0] = true;
-#endif
+//#endif
 
   metabool[2] = m_orig_is_float;
   metabool[3] = !m_sperr_stream.empty();
@@ -340,7 +376,7 @@ auto SPERR2D_Compressor::m_assemble_encoded_bitstream() -> RTNType
   itr += m_sperr_stream.size();
   assert(itr == m_encoded_stream.end());
 
-#ifdef USE_ZSTD
+//#ifdef USE_ZSTD
   // Task 3: apply ZSTD compression.
   const auto uncomp_size = total_size - m_meta_size;
   const auto comp_buf_len = ZSTD_compressBound(uncomp_size);
@@ -354,15 +390,18 @@ auto SPERR2D_Compressor::m_assemble_encoded_bitstream() -> RTNType
     return RTNType::ZSTDError;
   }
   else {
-    // Note: when the encoded stream is only a few kilobytes or smaller, the ZSTD compressed
-    //       output can be larger.
+    //Note: when the encoded stream is only a few kilobytes or smaller, the ZSTD compressed output can be larger.
     comp_buf.resize(m_meta_size + comp_size);
     m_encoded_stream = std::move(comp_buf);
   }
-#endif
+//#endif
 
   return RTNType::Good;
+  
+
+
 }
+
 
 
 #endif
