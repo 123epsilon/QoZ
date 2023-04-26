@@ -77,7 +77,7 @@ auto post_Condition(T * data,const size_t &num,const sperr::vec8_type& meta){
     //memcpy(data,buf.data(),num*sizeof(T));//maybe not efficient
     return rtn;
 }
-
+/*
 template<class T, QoZ::uint N> 
 char *SPERR_Compress(QoZ::Config &conf, T *data, size_t &outSize){
     assert(N==2 or N==3);//need to complete 2D support later.
@@ -132,8 +132,127 @@ void SPERR_Decompress(char *cmpData, size_t cmpSize, T *decData){
     return;
 }
 
+*/
+template<class T, QoZ::uint N> 
+char *SPERR_Compress(QoZ::Config &conf, T *data, size_t &outSize){//only supports float and double
+    assert(N==2 or N==3);
+    if(N==3){
+        
+        SPERR3D_OMP_C compressor;
+        compressor.set_num_threads(1);
+        compressor.set_eb_coeff(conf.wavelet_rel_coeff);
+        if(conf.wavelet!=1)
+            compressor.set_skip_wave(true);
+        auto rtn = sperr::RTNType::Good;
+          
+        auto chunks = std::vector<size_t>{1024,1024,1024};//ori 256^3, to tell the truth this is not large enough for scale but I just keep it, maybe set it large later.
+        if (std::is_same<T, double>::value)
+            rtn = compressor.copy_data<double>(reinterpret_cast<const double*>(data), conf.num,
+                                    {conf.dims[2], conf.dims[1], conf.dims[0]}, {chunks[0], chunks[1], chunks[2]});
+        else
+            rtn = compressor.copy_data<float>(reinterpret_cast<const float*>(data), conf.num,
+                                    {conf.dims[2], conf.dims[1], conf.dims[0]}, {chunks[0], chunks[1], chunks[2]});
+        compressor.set_target_pwe(conf.absErrorBound);
+        rtn = compressor.compress();
+        auto stream = compressor.get_encoded_bitstream();
+            
+        char * outData=new char[stream.size()+conf.size_est()];
+        outSize=stream.size();
+        memcpy(outData,stream.data(),stream.size());//maybe not efficient
+        stream.clear();
+        stream.shrink_to_fit();
+        return outData;
+    }
+    else{
+        SPERR2D_Compressor compressor;
+        compressor.set_eb_coeff(conf.wavelet_rel_coeff);
+        if(conf.wavelet!=1)
+            compressor.set_skip_wave(true);
+        auto rtn = sperr::RTNType::Good;
+        //auto chunks = std::vector<size_t>{1024,1024,1024};//ori 256^3, to tell the truth this is not large enough for scale but I just keep it, maybe set it large later.
+        if (std::is_same<T, double>::value)
+            rtn = compressor.copy_data<double>(reinterpret_cast<const double*>(data), conf.num,
+                                    {conf.dims[1], conf.dims[0], 1});
+        else
+            rtn = compressor.copy_data<float>(reinterpret_cast<const float*>(data), conf.num,
+                                    {conf.dims[1], conf.dims[0], 1});
+        if(rtn!=sperr::RTNType::Good){
+            std::cerr << "Copy error."<< std::endl;
+            return NULL;
+        }
+        compressor.set_target_pwe(conf.absErrorBound);
+        rtn = compressor.compress();
+        if(rtn!=sperr::RTNType::Good){
+            std::cerr << "Compression error."<< std::endl;
+            return NULL;
+        }
+        auto stream = compressor.view_encoded_bitstream();
+            
+        char * outData=new char[stream.size()+conf.size_est()];
+        outSize=stream.size();
+        memcpy(outData,stream.data(),stream.size());//maybe not efficient
+        stream.clear();
+        stream.shrink_to_fit();
+        return outData;
+    }
 
+}
+template<class T, QoZ::uint N> 
+void SPERR_Decompress(char *cmpData, size_t cmpSize, T *decData){//only supports float and double
+    assert(N==2 or N==3);
 
+    
+    std::vector<uint8_t> in_stream(cmpData,cmpData+cmpSize);
+    if(N==3){
+        SPERR3D_OMP_D decompressor;
+      
+        decompressor.set_num_threads(1);
+        if (decompressor.use_bitstream(in_stream.data(), in_stream.size()) != sperr::RTNType::Good) {
+            std::cerr << "Read compressed file error: "<< std::endl;
+            return;
+        }
+
+        if (decompressor.decompress(in_stream.data()) != sperr::RTNType::Good) {
+            std::cerr << "Decompression failed!" << std::endl;
+            return ;
+        }
+       
+        in_stream.clear();
+        in_stream.shrink_to_fit();
+        if (std::is_same<T, double>::value){
+            const auto vol = decompressor.get_data<double>();
+            memcpy(decData,vol.data(),sizeof(T)*vol.size());//maybe not efficient
+        }
+        else{
+            const auto vol = decompressor.get_data<float>();
+            memcpy(decData,vol.data(),sizeof(T)*vol.size());//maybe not efficient
+        }
+    }
+    else{
+        SPERR2D_Decompressor decompressor;
+      
+        if (decompressor.use_bitstream(in_stream.data(), in_stream.size()) != sperr::RTNType::Good) {
+            std::cerr << "Read compressed file error: "<< std::endl;
+            return;
+        }
+
+        if (decompressor.decompress() != sperr::RTNType::Good) {
+            std::cerr << "Decompression failed!" << std::endl;
+            return ;
+        }
+       
+        in_stream.clear();
+        in_stream.shrink_to_fit();
+        if (std::is_same<T, double>::value){
+            const auto vol = decompressor.get_data<double>();
+            memcpy(decData,vol.data(),sizeof(T)*vol.size());//maybe not efficient
+        }
+        else{
+            const auto vol = decompressor.get_data<float>();
+            memcpy(decData,vol.data(),sizeof(T)*vol.size());//maybe not efficient
+        }
+    }
+}
 
 template<class T, QoZ::uint N>
 char * outlier_compress(QoZ::Config &conf,T *data,size_t &outSize){
