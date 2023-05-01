@@ -139,30 +139,36 @@ char *SPERR_Compress(QoZ::Config &conf, T *data, size_t &outSize){//only support
     assert(N==2 or N==3);
     if(N==3){
         
-        SPERR3D_OMP_C compressor;
-        compressor.set_num_threads(1);
+        sperr::SPERR3D_Compressor compressor;
+        //compressor.set_num_threads(1);
         compressor.set_eb_coeff(conf.wavelet_rel_coeff);
         if(conf.wavelet!=1)
             compressor.set_skip_wave(true);
         auto rtn = sperr::RTNType::Good;
           
-        auto chunks = std::vector<size_t>{1024,1024,1024};//ori 256^3, to tell the truth this is not large enough for scale but I just keep it, maybe set it large later.
+        //auto chunks = std::vector<size_t>{1024,1024,1024};//ori 256^3, to tell the truth this is not large enough for scale but I just keep it, maybe set it large later.
         if (std::is_same<T, double>::value)
             rtn = compressor.copy_data<double>(reinterpret_cast<const double*>(data), conf.num,
-                                    {conf.dims[2], conf.dims[1], conf.dims[0]}, {chunks[0], chunks[1], chunks[2]});
+                                    {conf.dims[2], conf.dims[1], conf.dims[0]});
         else
             rtn = compressor.copy_data<float>(reinterpret_cast<const float*>(data), conf.num,
-                                    {conf.dims[2], conf.dims[1], conf.dims[0]}, {chunks[0], chunks[1], chunks[2]});
-        compressor.set_target_pwe(conf.absErrorBound);
+                                    {conf.dims[2], conf.dims[1], conf.dims[0]});
+        //compressor.set_target_pwe(conf.absErrorBound);
+        compressor.set_comp_params(sperr:max_size,sperr::max_d,conf.absErrorBound);
         rtn = compressor.compress();
-        auto stream = compressor.get_encoded_bitstream();
-            
+        auto stream = compressor.view_encoded_bitstream();
+        outSize=stream.size;
+        return NULL;
+        
+        /*
         char * outData=new char[stream.size()+conf.size_est()];
         outSize=stream.size();
         memcpy(outData,stream.data(),stream.size());//maybe not efficient
         stream.clear();
         stream.shrink_to_fit();
         return outData;
+        */
+        
     }
     else{
         SPERR2D_Compressor compressor;
@@ -188,13 +194,17 @@ char *SPERR_Compress(QoZ::Config &conf, T *data, size_t &outSize){//only support
             return NULL;
         }
         auto stream = compressor.view_encoded_bitstream();
-            
+        outSize=stream.size;
+        return NULL;
+
+        /*
         char * outData=new char[stream.size()+conf.size_est()];
         outSize=stream.size();
         memcpy(outData,stream.data(),stream.size());//maybe not efficient
         stream.clear();
         stream.shrink_to_fit();
         return outData;
+        */
     }
 
 }
@@ -742,23 +752,8 @@ void sampleBlocks(T *data,std::vector<size_t> &dims, size_t sampleBlockSize,std:
 
 
 template<class T, QoZ::uint N>
-std::pair<double,double> CompressTest(const QoZ::Config &conf,const std::vector< std::vector<T> > & sampled_blocks,QoZ::ALGO algo = QoZ::ALGO_INTERP,
-                    QoZ::TUNING_TARGET tuningTarget=QoZ::TUNING_TARGET_RD,bool useFast=true,double profiling_coeff=1,const std::vector<double> &orig_means=std::vector<double>(),
-                    const std::vector<double> &orig_sigma2s=std::vector<double>(),const std::vector<double> &orig_ranges=std::vector<double>(),const std::vector<T> &flattened_sampled_data=std::vector<T>(),const std::vector< std::vector<T> > & waveleted_input=std::vector< std::vector<T> >()){
+std::pair<double,double> CompressTest(const QoZ::Config &conf,const std::vector< std::vector<T> > & sampled_blocks){
     QoZ::Config testConfig(conf);
-    size_t ssim_size=conf.SSIMBlockSize;    
-    if(algo == QoZ::ALGO_LORENZO_REG){
-        testConfig.cmprAlgo = QoZ::ALGO_LORENZO_REG;
-        testConfig.dims=conf.dims;
-        testConfig.num=conf.num;
-        testConfig.lorenzo = true;
-        testConfig.lorenzo2 = true;
-        testConfig.regression = false;
-        testConfig.regression2 = false;
-        testConfig.openmp = false;
-        testConfig.blockSize = 5;//why?
-        testConfig.quantbinCnt = 65536 * 2;
-    }
     double square_error=0.0;
     double bitrate=0.0;
     double metric=0.0;
@@ -767,232 +762,22 @@ std::pair<double,double> CompressTest(const QoZ::Config &conf,const std::vector<
     size_t per_block_ele_num=pow(sampleBlockSize+1,N);
     size_t ele_num=num_sampled_blocks*per_block_ele_num;
     std::vector<T> cur_block(testConfig.num,0);
-    std::vector<int> q_bins;
-    std::vector<std::vector<int> > block_q_bins;
-    std::vector<size_t> q_bin_counts;
-    std::vector<T> flattened_cur_blocks;
     size_t idx=0;   
-    QoZ::concepts::CompressorInterface<T> *sz;
     size_t totalOutSize=0;
-    if(algo == QoZ::ALGO_LORENZO_REG){
-        auto quantizer = QoZ::LinearQuantizer<T>(testConfig.absErrorBound, testConfig.quantbinCnt / 2);
-        if (useFast &&N == 3 && !testConfig.regression2) {
-            sz = QoZ::make_sz_general_compressor<T, N>(QoZ::make_sz_fast_frontend<T, N>(testConfig, quantizer), QoZ::HuffmanEncoder<int>(),
-                                                                   QoZ::Lossless_zstd());
-        }
-        else{
-            sz = make_lorenzo_regression_compressor<T, N>(testConfig, quantizer, QoZ::HuffmanEncoder<int>(), QoZ::Lossless_zstd());
-
-        }
-    }
-    else if(algo == QoZ::ALGO_INTERP){
-
-        sz =  new QoZ::SZInterpolationCompressor<T, N, QoZ::LinearQuantizer<T>, QoZ::HuffmanEncoder<int>, QoZ::Lossless_zstd>(
-                        QoZ::LinearQuantizer<T>(testConfig.absErrorBound),
-                        QoZ::HuffmanEncoder<int>(),
-                        QoZ::Lossless_zstd());
-
-    }
-    else{
-        std::cout<<"algo type error!"<<std::endl;
-        return std::pair<double,double>(0,0);
-    }
                            
     for (int k=0;k<num_sampled_blocks;k++){
         size_t sampleOutSize;
         std::vector<T> cur_block(testConfig.num);
-        if(testConfig.wavelet==0 or waveleted_input.size()==0){
-            std::copy(sampled_blocks[k].begin(),sampled_blocks[k].end(),cur_block.begin());
-        }
-        else{
-            std::copy(waveleted_input[k].begin(),waveleted_input[k].end(),cur_block.begin());
-
-        }
-        char *cmprData;
-        if(use_sperr<T,N>(testConfig)){
-            if(testConfig.wavelet<=1){
-
-                cmprData=SPERR_Compress<T,N>(testConfig,cur_block.data(),sampleOutSize);
-        
-                totalOutSize+=sampleOutSize;
-                if(tuningTarget!=QoZ::TUNING_TARGET_CR){
-                    SPERR_Decompress<T,N>(cmprData,sampleOutSize,cur_block.data());
-                    
-                } 
-            }
-            else{
-    
-                cmprData=SPERR_Compress<T,N>(testConfig,cur_block.data(),sampleOutSize);
-                
-                totalOutSize+=sampleOutSize;
-                if(1){//tuningTarget!=QoZ::TUNING_TARGET_CR){
-                    SPERR_Decompress<T,N>(cmprData,sampleOutSize,cur_block.data());
-                    std::vector<size_t> ori_sbs(N,testConfig.sampleBlockSize+1);
-                    T *idwtData;
-                   // if(conf.pyBind)
-                       // idwtData=QoZ::pybind_wavelet_postprocessing<T,N>(testConfig,cur_block.data(), testConfig.metadata,testConfig.wavelet, false,ori_sbs);
-                    //else
-
-                        idwtData=QoZ::external_wavelet_postprocessing<T,N>(cur_block.data(),testConfig.dims, testConfig.num, testConfig.wavelet, testConfig.pid, false,ori_sbs);
-                    
-
-                    cur_block.assign(idwtData,idwtData+per_block_ele_num);//maybe not efficient, what about change the return meta of ewp?
-                    delete []idwtData;
-                    if(testConfig.conditioning){
-                        post_Condition<T,N>(cur_block.data(),per_block_ele_num,testConfig.block_metas[k]);
-                    }
-                    
-                    std::vector<T> offsets(per_block_ele_num);
-                    
-                    for(size_t i=0;i<per_block_ele_num;i++)
-                        offsets[i]=sampled_blocks[k][i]-cur_block[i];
-                    
-                    size_t oc_size;
-                    std::vector<size_t> ori_dims=testConfig.dims,temp_dims={per_block_ele_num};
-
-                    testConfig.setDims(temp_dims.begin(),temp_dims.end());
-
-                    char * offsetsCmprData=outlier_compress<T,N>(testConfig,offsets.data(),oc_size);
-                    testConfig.setDims(ori_dims.begin(),ori_dims.end());
-                    delete []offsetsCmprData;
-                    totalOutSize+=oc_size;
-                    for(size_t i=0;i<per_block_ele_num;i++)
-                        cur_block[i]+=offsets[i];
-
-                }
-                
-
-
-
-            }
-   
-            delete []cmprData;          
-        }    
-        else{
-            cmprData = (char*)sz->compress(testConfig, cur_block.data(), sampleOutSize,1);
-
-            delete[]cmprData;
-            if(testConfig.wavelet>0 and waveleted_input.size()>0 and tuningTarget!=QoZ::TUNING_TARGET_CR){
-                
-                if(testConfig.wavelet==1){
-                    QoZ::Wavelet<T,N> wlt;
-                    wlt.postProcess_cdf97(cur_block.data(),conf.dims);
-                    
-                }
-                else{
-                    std::vector<size_t> ori_sbs(N,testConfig.sampleBlockSize+1);
-                    T *idwtData;
-                    
-                        idwtData=QoZ::external_wavelet_postprocessing<T,N>(cur_block.data(),testConfig.dims, testConfig.num, testConfig.wavelet, testConfig.pid, false,ori_sbs);
-            
-                    cur_block.assign(idwtData,idwtData+per_block_ele_num);//maybe not efficient, what about change the return type of ewp?
-                    delete []idwtData;
-                }
-                if(testConfig.conditioning){
-                    
-                    post_Condition<T,N>(cur_block.data(),per_block_ele_num,testConfig.block_metas[k]);
-                }
-
-            }
-        }
-
-        
-        if(algo==QoZ::ALGO_INTERP and !(use_sperr<T,N>(testConfig)))
-            block_q_bins.push_back(testConfig.quant_bins);
-
-        if(tuningTarget==QoZ::TUNING_TARGET_RD){
-            if(algo==QoZ::ALGO_INTERP and !(use_sperr<T,N>(testConfig)) )
-                square_error+=testConfig.decomp_square_error;
-            else{
-               
-                for(size_t j=0;j<per_block_ele_num;j++){
-                    T value=sampled_blocks[k][j]-cur_block[j];
-                    square_error+=value*value;
-                
-                }
-            }
-        }
-        else if (tuningTarget==QoZ::TUNING_TARGET_SSIM){
-            size_t ssim_block_num=orig_means.size();                       
-            double mean=0,sigma2=0,cov=0,range=0;
-            double orig_mean=0,orig_sigma2=0,orig_range=0;  
-            std::vector<size_t>block_dims(N,sampleBlockSize+1);                      
-            if(N==2){
-                for (size_t i=0;i+ssim_size<sampleBlockSize+1;i+=ssim_size){
-                    for (size_t j=0;j+ssim_size<sampleBlockSize+1;j+=ssim_size){
-                        orig_mean=orig_means[idx];
-                        orig_sigma2=orig_sigma2s[idx];
-                        orig_range=orig_ranges[idx];
-                        std::vector<size_t> starts{i,j};
-                        QoZ::blockwise_profiling<T>(cur_block.data(),block_dims,starts,ssim_size,mean,sigma2,range);
-                        cov=QoZ::blockwise_cov<T>(sampled_blocks[k].data(),cur_block.data(),block_dims,starts,ssim_size,orig_mean,mean);
-                        metric+=QoZ::SSIM(orig_range,orig_mean,orig_sigma2,mean,sigma2,cov)/ssim_block_num;
-                        idx++;
-
-
-                    }
-                }
-            }
-            else if(N==3){
-                for (size_t i=0;i+ssim_size<sampleBlockSize+1;i+=ssim_size){
-                    for (size_t j=0;j+ssim_size<sampleBlockSize+1;j+=ssim_size){
-                        for (size_t kk=0;kk+ssim_size<sampleBlockSize+1;kk+=ssim_size){
-                            orig_mean=orig_means[idx];
-                            orig_sigma2=orig_sigma2s[idx];
-                            orig_range=orig_ranges[idx];
-                            std::vector<size_t> starts{i,j,kk};
-                            QoZ::blockwise_profiling<T>(cur_block.data(),block_dims,starts,ssim_size,mean,sigma2,range);
-                            cov=QoZ::blockwise_cov<T>(sampled_blocks[k].data(),cur_block.data(),block_dims,starts,ssim_size,orig_mean,mean);
-                            //printf("%.8f %.8f %.8f %.8f %.8f %.8f %.8f\n",orig_range,orig_sigma2,orig_mean,range,sigma2,mean,cov);
-                            metric+=QoZ::SSIM(orig_range,orig_mean,orig_sigma2,mean,sigma2,cov)/ssim_block_num;
-                     
-                            idx++;
-                        }
-                    }
-                }
-            }
-        }
-        else if (tuningTarget==QoZ::TUNING_TARGET_AC){
-            flattened_cur_blocks.insert(flattened_cur_blocks.end(),cur_block.begin(),cur_block.end());
-        }                      
-    }
-    if(algo==QoZ::ALGO_INTERP and !(use_sperr<T,N>(testConfig))){
-        q_bin_counts=testConfig.quant_bin_counts;
-        size_t level_num=q_bin_counts.size();
-        size_t last_pos=0;
-        for(int k=level_num-1;k>=0;k--){
-            for (size_t l =0;l<num_sampled_blocks;l++){
-                for (size_t m=last_pos;m<q_bin_counts[k];m++){
-                    q_bins.push_back(block_q_bins[l][m]);
-                }
-            }
-            last_pos=q_bin_counts[k];
-        }      
-    }
-    size_t sampleOutSize;
-    if(!use_sperr<T,N>(testConfig)){
-        auto cmprData=sz->encoding_lossless(totalOutSize,q_bins);                   
-        delete[]cmprData;
        
-    }    
-   
-    bitrate=8*double(totalOutSize)/ele_num;
-    
-    bitrate*=profiling_coeff;
-    if(tuningTarget==QoZ::TUNING_TARGET_RD){
-                   
-        double mse=square_error/ele_num;
-        mse*=profiling_coeff;      
-        if(testConfig.wavelet==1)
-            mse*=testConfig.waveletMseFix;
-        else if(testConfig.wavelet>1)
-            mse*=testConfig.waveletMseFix2;
-        metric=QoZ::PSNR(testConfig.rng,mse);
+        std::copy(sampled_blocks[k].begin(),sampled_blocks[k].end(),cur_block.begin());
+
+        auto cmprData=SPERR_Compress<T,N>(testConfig,cur_block.data(),sampleOutSize);
+        
+        totalOutSize+=sampleOutSize;
+                
     }
-    else if (tuningTarget==QoZ::TUNING_TARGET_AC){                       
-        metric=1.0-QoZ::autocorrelation<T>(flattened_sampled_data.data(),flattened_cur_blocks.data(),ele_num);                        
-    }                    
-    //printf("%.2f %.2f %.4f %.2f\n",testConfig.alpha,testConfig.beta,bitrate,metric);   
+                
+    bitrate=8*double(totalOutSize)/ele_num;
     if(testConfig.wavelet==1){
         bitrate*=testConfig.waveletBrFix;
     } 
@@ -1000,10 +785,6 @@ std::pair<double,double> CompressTest(const QoZ::Config &conf,const std::vector<
         bitrate*=testConfig.waveletBrFix2;
     }       
 
-    if(algo==QoZ::ALGO_LORENZO_REG)    {
-        bitrate*=testConfig.lorenzoBrFix;
-    }
-    delete sz;
     //std::cout<<bitrate<<" "<<metric<<std::endl;
     return std::pair(bitrate,metric);
 }
@@ -1011,7 +792,7 @@ std::pair<double,double> CompressTest(const QoZ::Config &conf,const std::vector<
 
 
 template<class T, QoZ::uint N> 
-double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double sample_rate, size_t blocksize,std::vector<size_t> &dims,int profiling=0,int var_first=0){
+double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double sample_rate, size_t blocksize,std::vector<size_t> &dims,bool skip_outlier=false, int profiling=0,int var_first=0){
 
     std::vector< std::vector<T> > sampled_blocks;
    
@@ -1031,6 +812,8 @@ double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double samp
     conf.tuningTarget=QoZ::TUNING_TARGET_CR;
     conf.errorBoundMode=QoZ::EB_ABS;
     conf.absErrorBound=error_bound;
+    if(skip_outlier)
+        conf.wavelet=2;
     //if (conf.rng<0)
      //   conf.rng=QoZ::data_range<T>(data,conf.num);
     size_t totalblock_num=1;  
@@ -1066,7 +849,7 @@ double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double samp
    
 
 
-    std::pair<double,double> results=CompressTest<T,N>(conf, sampled_blocks,QoZ::ALGO_INTERP,QoZ::TUNING_TARGET_CR,false);
+    std::pair<double,double> results=CompressTest<T,N>(conf, sampled_blocks);
 
     double cur_ratio=sizeof(T)*8.0/results.first;
   
@@ -1093,7 +876,7 @@ char *SZ_compress_Interp_lorenzo(QoZ::Config &conf, T *data, size_t &outSize) {
 
     double sample_rate=0.01;
     size_t blocksize=32;
-    std::cout<<"estimated cr:"<<estimateSPERRCRbasedonErrorBound<T,N>(conf.absErrorBound,data,sample_rate,blocksize,conf.dims)<<std::endl;;
+    std::cout<<"estimated cr:"<<estimateSPERRCRbasedonErrorBound<T,N>(conf.absErrorBound,data,sample_rate,blocksize,conf.dims,false)<<std::endl;;
     outSize=1;
     char * out=new char[1+conf.size_est()+1000];
     out[0]=0;

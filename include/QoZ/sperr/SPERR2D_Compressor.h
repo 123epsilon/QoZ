@@ -212,7 +212,7 @@ auto SPERR2D_Compressor::compress() -> RTNType
   }
 
   // Step 1: data goes through the conditioner
-  if(!skip_wave){
+  if(1){
     m_condi_stream = m_conditioner.condition(m_val_buf, m_dims);
     // Step 1.1: Believe it or not, there are constant fields passed in for compression!
     // Let's detect that case and skip the rest of the compression routine if it occurs.
