@@ -179,7 +179,7 @@ auto sperr::SPERR3D_Compressor::compress() -> RTNType
   }
   //std::cout<<"p2"<<std::endl;
   // Step 1: data goes through the conditioner
-  if(!skip_wave){
+  if(1){
     /*
     m_conditioner.toggle_all_settings(m_conditioning_settings);
     auto [rtn, condi_meta] = m_conditioner.condition(m_val_buf);
