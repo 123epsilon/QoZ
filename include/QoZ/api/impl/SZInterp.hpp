@@ -812,8 +812,8 @@ double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double samp
     conf.sperr=1;
     conf.wavelet=1;
     conf.wavelet_rel_coeff=1.5;
-    conf.profiling=profiling;
-    conf.var_first=var_first;
+    //conf.profiling=profiling;
+    //conf.var_first=var_first;
     conf.sampleBlockSize=blocksize;
     conf.cmprAlgo=QoZ::ALGO_INTERP;
     conf.tuningTarget=QoZ::TUNING_TARGET_CR;
