@@ -876,7 +876,7 @@ char *SZ_compress_Interp_lorenzo(QoZ::Config &conf, T *data, size_t &outSize) {
 
     double sample_rate=0.01;
     size_t blocksize=32;
-    std::cout<<"estimated cr:"<<estimateSPERRCRbasedonErrorBound<T,N>(conf.absErrorBound,data,sample_rate,blocksize,conf.dims,false)<<std::endl;;
+    std::cout<<"estimated cr:"<<estimateSPERRCRbasedonErrorBound<T,N>(conf.absErrorBound,data,sample_rate,blocksize,conf.dims,true)<<std::endl;;
     outSize=1;
     char * out=new char[1+conf.size_est()+1000];
     out[0]=0;
