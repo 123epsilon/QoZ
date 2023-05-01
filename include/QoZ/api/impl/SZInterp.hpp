@@ -154,7 +154,7 @@ char *SPERR_Compress(QoZ::Config &conf, T *data, size_t &outSize){//only support
             rtn = compressor.copy_data<float>(reinterpret_cast<const float*>(data), conf.num,
                                     {conf.dims[2], conf.dims[1], conf.dims[0]});
         //compressor.set_target_pwe(conf.absErrorBound);
-        compressor.set_comp_params(sperr:max_size,sperr::max_d,conf.absErrorBound);
+        compressor.set_comp_params(sperr::max_size,sperr::max_d,conf.absErrorBound);
         rtn = compressor.compress();
         auto stream = compressor.view_encoded_bitstream();
         outSize=stream.size();
