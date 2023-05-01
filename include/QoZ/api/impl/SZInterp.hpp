@@ -792,7 +792,14 @@ std::pair<double,double> CompressTest(const QoZ::Config &conf,const std::vector<
 
 
 template<class T, QoZ::uint N> 
-double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double sample_rate, size_t blocksize,std::vector<size_t> &dims,bool skip_outlier=false, int profiling=0,int var_first=0){
+double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double sample_rate, size_t blocksize,std::vector<size_t> &dims,bool skip_outlier=false){//, int profiling=0,int var_first=0){
+
+    //error_bound: The abs error bound.
+    //data: The whole input data array. 
+    //sample rate: The rate of sampled data points (e.g. 0.01).
+    //blocksize: The sampled block size (e.g. 32).
+    //dims: the dimensions of the input data array (fastest last, e.g. for miranda data it is {256,384,384}).
+    //skip_outlier: whether skip the outlier correction (dewave and error correction).
 
     std::vector< std::vector<T> > sampled_blocks;
    
@@ -876,7 +883,7 @@ char *SZ_compress_Interp_lorenzo(QoZ::Config &conf, T *data, size_t &outSize) {
 
     double sample_rate=0.01;
     size_t blocksize=32;
-    std::cout<<"estimated cr:"<<estimateSPERRCRbasedonErrorBound<T,N>(conf.absErrorBound,data,sample_rate,blocksize,conf.dims,true)<<std::endl;;
+    std::cout<<"estimated cr:"<<estimateSPERRCRbasedonErrorBound<T,N>(conf.absErrorBound,data,sample_rate,blocksize,conf.dims,false)<<std::endl;;
     outSize=1;
     char * out=new char[1+conf.size_est()+1000];
     out[0]=0;
