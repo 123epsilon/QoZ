@@ -157,7 +157,7 @@ char *SPERR_Compress(QoZ::Config &conf, T *data, size_t &outSize){//only support
         compressor.set_comp_params(sperr:max_size,sperr::max_d,conf.absErrorBound);
         rtn = compressor.compress();
         auto stream = compressor.view_encoded_bitstream();
-        outSize=stream.size;
+        outSize=stream.size();
         return NULL;
         
         /*
@@ -194,7 +194,7 @@ char *SPERR_Compress(QoZ::Config &conf, T *data, size_t &outSize){//only support
             return NULL;
         }
         auto stream = compressor.view_encoded_bitstream();
-        outSize=stream.size;
+        outSize=stream.size();
         return NULL;
 
         /*
