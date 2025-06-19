@@ -6,6 +6,8 @@
 #include <cfloat>
 #include <cmath>
 #include "QoZ/api/sz.hpp"
+#include "QoZ/utils/qcat_ssim.hpp"
+// #include "ZC_ssim.h"
 
 using namespace QoZ;
 
@@ -15,30 +17,60 @@ bool skip_setting[] = {false, true};
 double sample_rates[] = {0.01, 0.10, 0.20, 0.30, 0.40};
 
 template<class T, uint N>
-std::vector<double> estimate_compress(Config conf, T *data, double abs, std::string file, std::ofstream& output, std::ofstream& sampleout){
+std::vector<double> estimate_ssim(Config conf, T *data, double abs, size_t nbEle, std::string file, std::ofstream& output, std::ofstream& sampleout){
 	conf.errorBoundMode = QoZ::EB_ABS;
     conf.absErrorBound = abs;
 
 	std::vector<double> results;
 
-	char ebstr[2048];
-	std::sprintf(ebstr, "%0.10f", abs);
-
 	size_t outSize = 0;
-	printf("startcmpr\n");
+	size_t n_dims = conf.dims.size();
+	assert(n_dims == 1 or n_dims == 2 or n_dims == 3);
+	printf("startssim\n");
 	Timer timer(true);
-	auto cmpData = SPERR_Compress<T, N>(conf, data, outSize);
+	T *data_ = new T[nbEle];
+	memcpy(data_, data, sizeof(T)*nbEle);
+	char* cmpData = SPERR_Compress<T, N>(conf, data, outSize);
+	printf("cmp\n");
+	T* decData = new T[nbEle];
+	SPERR_Decompress<T, N>(cmpData, outSize, decData);
+	printf("dcmp\n");
+	double ssim_score;
+	// double * min_ssim = new double();
+	// double * avg_ssim = new double();
+	// double * max_ssim = new double();
+	if(n_dims == 3){
+		// zc_calc_ssim_3d_float(data, decData, conf.dims[2], conf.dims[1], conf.dims[0], min_ssim, avg_ssim, max_ssim);
+		// ssim_score = (float) *avg_ssim;
+		ssim_score = SSIM_3d_windowed_float(data, decData, conf.dims[2], conf.dims[1], conf.dims[0], 8,8,8, 8,8,8);
+	}
+	else if (n_dims == 2){
+		// ssim_score = zc_calc_ssim_2d_float(data, decData, conf.dims[1], conf.dims[0]);
+		ssim_score = SSIM_2d_windowed_float(data, decData, conf.dims[1], conf.dims[0], 8,8, 8,8);
+	}
+	else {
+		ssim_score = SSIM_1d_windowed_float(data, decData, conf.dims[0], 8, 8);
+	}
+	printf("ssim\n");
 	double dur = timer.stop();
 
-	printf("cmpr time: %f s\n\n", dur);
+	// delete min_ssim;
+	// delete avg_ssim;
+	// delete max_ssim;
 
-	double trueCR = conf.num * sizeof(T) * 1.0 / outSize;
-
-	output << file << "," << ebstr << "," << std::to_string(trueCR) << "," << std::to_string(dur) << "\n" << std::flush;
-
+	delete[] data_;
+	delete[] decData;
 	delete[] cmpData;
 
-	// results.push_back(trueCR);
+	printf("ssim calc time: %f s\n\n", dur);
+
+	char ebstr[2048];
+	std::sprintf(ebstr, "%0.10f", abs);
+	output << file << "," << ebstr << "," << std::to_string(ssim_score) << "," << std::to_string(dur) << "\n" << std::flush;
+
+
+	// exit(0);
+	// results.push_back(ssim_score);
 	// results.push_back(dur);
 
 	for(double sample_rate : sample_rates){
@@ -55,14 +87,16 @@ std::vector<double> estimate_compress(Config conf, T *data, double abs, std::str
 				printf("copy time: %f s\n", cpydur);
 
 				timer.start();
-				double estCR = estimateSPERRCRbasedonErrorBound<T,N>(abs, data_cpy, sample_rate, bs, conf.dims, skip_outlier);
+				double estSSIM = estimateSPERRSSIMbasedonErrorBound<T,N>(abs, data_cpy, sample_rate, bs, conf.dims, skip_outlier);
 				double estDur = timer.stop();
+
+				printf("ssim vs est ssim\n%f\t%f\n", ssim_score, estSSIM);
 
 				printf("est time: %f s\n\n", estDur);
 
 				// timer.start();
-				// results.push_back(estCR);
-				// timer.stop("push to estCR");
+				// results.push_back(estSSIM);
+				// timer.stop("push to estSSIM");
 				// timer.start();
 				// results.push_back(estDur);
 				// timer.stop("push to estDUR");
@@ -74,8 +108,7 @@ std::vector<double> estimate_compress(Config conf, T *data, double abs, std::str
 				char blockstr[256];
 				std::sprintf(blockstr, "%i", bs);
 
-				sampleout << file << "," << ebstr << "," << ratestr << "," << skipstr << "," << blockstr << "," << std::to_string(estCR) << "," << std::to_string(estDur) << "\n" << std::flush;
-
+				sampleout << file << "," << ebstr << "," << ratestr << "," << skipstr << "," << blockstr << "," << std::to_string(estSSIM) << "," << std::to_string(estDur) << "\n" << std::flush;
 
 
 
@@ -83,6 +116,8 @@ std::vector<double> estimate_compress(Config conf, T *data, double abs, std::str
 			}
 		}
 	}
+	
+	
 
 	return results;
 
@@ -110,6 +145,7 @@ int main(int argc, char *argv[]) {
 	r1 = atoi(argv[2]);
 	r2 = atoi(argv[3]);
 	r3 = atoi(argv[4]);
+	size_t nbEle = r1;
 	tag = argv[5];
 
 	size_t dim;
@@ -122,9 +158,11 @@ int main(int argc, char *argv[]) {
 	}
 	else if(r3 == 0){
 		dim = 2;
+		nbEle *= r2;
 	} 
 	else {
 		dim = 3;
+		nbEle *= r2*r3;
 	}
 
 
@@ -184,13 +222,13 @@ int main(int argc, char *argv[]) {
 			printf("branch\n");
 			if (dim == 1) {
 				Config config(r1);
-				results = estimate_compress<float, 1>(config, data_, eb_, files[i], output, sampleout);
+				results = estimate_ssim<float, 1>(config, data_, eb_, nbEle, files[i], output, sampleout);
 			} else if (dim == 2) {
 				Config config(r2, r1);
-				results = estimate_compress<float, 2>(config, data_, eb_, files[i], output, sampleout);
+				results = estimate_ssim<float, 2>(config, data_, eb_, nbEle, files[i], output, sampleout);
 			} else if (dim == 3) {
 				Config config(r3, r2, r1);
-				results = estimate_compress<float, 3>(config, data_, eb_, files[i], output, sampleout);
+				results = estimate_ssim<float, 3>(config, data_, eb_, nbEle, files[i], output, sampleout);
 			}
 
 			printf("exit branch\n");

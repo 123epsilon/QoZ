@@ -31,6 +31,14 @@ target_compile_features(${PROJECT_NAME}
   )
 target_link_libraries(${PROJECT_NAME} INTERFACE OpenMP::OpenMP_CXX)
 
+# link to Z-Checker
+# target_include_directories(
+#         ${PROJECT_NAME} INTERFACE
+#         "/home/ac.arhammkhan/Z-checker/build/include"
+#         )
+
+# target_link_libraries(${PROJECT_NAME} INTERFACE "/home/ac.arhammkhan/Z-checker/build/lib/libzc.so")
+
 option(QoZ_USE_BUNDLED_ZSTD "prefer the bundled version of Zstd" OFF)
 option(QoZ_DEBUG_TIMINGS "print debug timing information" ON)
 

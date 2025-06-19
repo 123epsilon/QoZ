@@ -39,6 +39,8 @@
 #include <cstdlib>
 //namespace py = pybind11;
 
+// #include "ZC_ssim.h"
+#include "QoZ/utils/qcat_ssim.hpp"
 
 template<class T, QoZ::uint N>
 bool use_sperr(const QoZ::Config & conf){
@@ -78,10 +80,10 @@ auto post_Condition(T * data,const size_t &num,const sperr::vec8_type& meta){
     //memcpy(data,buf.data(),num*sizeof(T));//maybe not efficient
     return rtn;
 }
-/*
+
 template<class T, QoZ::uint N> 
 char *SPERR_Compress(QoZ::Config &conf, T *data, size_t &outSize){
-    assert(N==2 or N==3);//need to complete 2D support later.
+    assert(N == 1 or N==2 or N==3);//need to complete 2D support later.
         
     SPERR3D_OMP_C compressor;
     compressor.set_num_threads(1);
@@ -94,9 +96,13 @@ char *SPERR_Compress(QoZ::Config &conf, T *data, size_t &outSize){
     if(N==3)
         rtn = compressor.copy_data(reinterpret_cast<const float*>(data), conf.num,
                                 {conf.dims[2], conf.dims[1], conf.dims[0]}, {chunks[0], chunks[1], chunks[2]});
-    else
+    else if(N==2)
         rtn = compressor.copy_data(reinterpret_cast<const float*>(data), conf.num,
                                 {conf.dims[1], conf.dims[0], 1}, {chunks[0], chunks[1], chunks[2]});//temp 2D support. not sure if works well.
+    else
+        rtn = compressor.copy_data(reinterpret_cast<const float*>(data), conf.num,
+                                {conf.dims[0], 1, 1}, {chunks[0], chunks[1], chunks[2]});
+
     compressor.set_target_pwe(conf.absErrorBound);
     rtn = compressor.compress();
     auto stream = compressor.get_encoded_bitstream();
@@ -133,7 +139,9 @@ void SPERR_Decompress(char *cmpData, size_t cmpSize, T *decData){
     return;
 }
 
-*/
+
+
+/*
 template<class T, QoZ::uint N> 
 char *SPERR_Compress(QoZ::Config &conf, T *data, size_t &outSize){//only supports float and double
     assert(N==2 or N==3);
@@ -157,17 +165,16 @@ char *SPERR_Compress(QoZ::Config &conf, T *data, size_t &outSize){//only support
         compressor.set_comp_params(sperr::max_size,sperr::max_d,conf.absErrorBound);
         rtn = compressor.compress();
         auto stream = compressor.view_encoded_bitstream();
-        outSize=stream.size();
-        return NULL;
+        // outSize=stream.size();
+        // return NULL;
         
-        /*
+        
         char * outData=new char[stream.size()+conf.size_est()];
         outSize=stream.size();
         memcpy(outData,stream.data(),stream.size());//maybe not efficient
         stream.clear();
         stream.shrink_to_fit();
         return outData;
-        */
         
     }
     else{
@@ -194,17 +201,17 @@ char *SPERR_Compress(QoZ::Config &conf, T *data, size_t &outSize){//only support
             return NULL;
         }
         auto stream = compressor.view_encoded_bitstream();
-        outSize=stream.size();
-        return NULL;
+        // outSize=stream.size();
+        // return NULL;
 
-        /*
+        
         char * outData=new char[stream.size()+conf.size_est()];
         outSize=stream.size();
         memcpy(outData,stream.data(),stream.size());//maybe not efficient
         stream.clear();
         stream.shrink_to_fit();
         return outData;
-        */
+        
     }
 
 }
@@ -264,6 +271,7 @@ void SPERR_Decompress(char *cmpData, size_t cmpSize, T *decData){//only supports
         }
     }
 }
+*/
 
 template<class T, QoZ::uint N>
 char * outlier_compress(QoZ::Config &conf,T *data,size_t &outSize){
@@ -677,7 +685,18 @@ void sampleBlocks(T *data,std::vector<size_t> &dims, size_t sampleBlockSize,std:
             size_t sample_stride=(size_t)(1.0/sample_rate);
             if(sample_stride<=0)
                 sample_stride=1;
-            if (N==2){                        
+            if(N==1) {
+                for (size_t x_start=0;x_start<dims[0]-sampleBlockSize;x_start+=sampleBlockSize){       
+                    if (idx%sample_stride==0){
+                        std::vector<size_t> starts{x_start};
+                        std::vector<T> s_block;
+                        QoZ::sample_blocks<T,N>(data, s_block,dims, starts,sampleBlockSize+1);
+                        sampled_blocks.push_back(s_block);
+                    }
+                    idx+=1;
+                }
+            }
+            else if (N==2){                        
                 for (size_t x_start=0;x_start<dims[0]-sampleBlockSize;x_start+=sampleBlockSize){                           
                     for (size_t y_start=0;y_start<dims[1]-sampleBlockSize;y_start+=sampleBlockSize){
                         if (idx%sample_stride==0){
@@ -708,7 +727,13 @@ void sampleBlocks(T *data,std::vector<size_t> &dims, size_t sampleBlockSize,std:
         }
         else{
             std::vector <std::vector<size_t> > blocks_starts;
-            if (N==2){  
+            if (N==1){  
+                for (size_t x_start=0;x_start<dims[0]-sampleBlockSize;x_start+=sampleBlockSize){  
+                    blocks_starts.push_back(std::vector<size_t>{x_start});
+                }
+
+            }
+            else if (N==2){  
                 for (size_t x_start=0;x_start<dims[0]-sampleBlockSize;x_start+=sampleBlockSize){                           
                     for (size_t y_start=0;y_start<dims[1]-sampleBlockSize;y_start+=sampleBlockSize){
                        
@@ -752,6 +777,348 @@ void sampleBlocks(T *data,std::vector<size_t> &dims, size_t sampleBlockSize,std:
 
 
 template<class T, QoZ::uint N>
+double SSIMTest(const QoZ::Config &conf,const std::vector< std::vector<T> > & sampled_blocks){
+    assert(N==1 or N==2 or N==3);
+    QoZ::Config testConfig(conf);
+    double square_error=0.0;
+    T maxValue = sampled_blocks[0][0];
+    double bitrate=0.0;
+    double metric=0.0;
+    size_t sampleBlockSize=testConfig.sampleBlockSize;
+    size_t num_sampled_blocks=sampled_blocks.size();
+    size_t per_block_ele_num=pow(sampleBlockSize+1,N);
+    size_t ele_num=num_sampled_blocks*per_block_ele_num;
+    std::vector<T> cur_block(testConfig.num,0);
+    size_t idx=0;   
+    size_t totalOutSize=0;
+    float ssim_sum = 0.0;
+    size_t num_ssim_samples = 0;
+
+    for (int k=0;k<num_sampled_blocks;k++){
+        size_t sampleOutSize;
+        std::vector<T> cur_block(testConfig.num);
+       
+        std::copy(sampled_blocks[k].begin(),sampled_blocks[k].end(),cur_block.begin());
+
+        char* cmprData = SPERR_Compress<T,N>(testConfig,cur_block.data(),sampleOutSize);
+        T* decData = new T[per_block_ele_num];
+        SPERR_Decompress<T,N>(cmprData, sampleOutSize, decData);
+
+
+        double ssim_score;
+        // double * min_ssim = new double();
+        // double * avg_ssim = new double();
+        // double * max_ssim = new double();
+        T* blockdata = new T[per_block_ele_num];
+
+        memcpy(blockdata, sampled_blocks[k].data(), sizeof(T)*per_block_ele_num);
+        if(N==1){
+            ssim_score = SSIM_1d_windowed_float(blockdata, decData, sampleBlockSize, 8, 8);
+            if(std::isnan(ssim_score)){
+                ssim_score = 0;
+            }
+            else{
+                num_ssim_samples++;
+            }
+        }
+        else if(N == 2){
+            // ssim_score = zc_calc_ssim_2d_float(blockdata, decData, sampleBlockSize, sampleBlockSize);
+            ssim_score = SSIM_2d_windowed_float(blockdata, decData, sampleBlockSize, sampleBlockSize, 8, 8, 8, 8);
+            if(std::isnan(ssim_score)){
+                ssim_score = 0;
+            }
+            else{
+                num_ssim_samples++;
+            }
+        }
+        else {
+            // zc_calc_ssim_3d_float(blockdata, decData, sampleBlockSize, sampleBlockSize, sampleBlockSize, min_ssim, avg_ssim, max_ssim);
+            // ssim_score = (float) *avg_ssim;
+            ssim_score = SSIM_3d_windowed_float(blockdata, decData, sampleBlockSize, sampleBlockSize, sampleBlockSize, 8,8,8, 8,8,8);
+
+            // indicates block was all constant, just drop this block from the estimation
+            if(std::isnan(ssim_score)){
+                ssim_score = 0;
+            }
+            else{
+                num_ssim_samples++;
+            }
+
+            // std::cout << "ssim: " << *min_ssim << " " << *avg_ssim << " " << *max_ssim << std::endl;
+        }
+
+        ssim_sum += ssim_score;
+
+        // delete min_ssim;
+        // delete avg_ssim;
+        // delete max_ssim;
+        delete[] blockdata;
+        
+    }
+                
+    double ssim = (double) ssim_sum / num_ssim_samples;
+
+    size_t num_nan_blocks = num_sampled_blocks - num_ssim_samples;
+    std::cout << "NDIM: " << N << std::endl;
+    std::cout << "sampleblocksize: " << sampleBlockSize << std::endl;
+    std::cout << "Num total blocks: " << num_sampled_blocks << std::endl;
+    std::cout << "Num NAN blocks: " << num_nan_blocks << std::endl;
+
+    return ssim;
+}
+
+template<class T, QoZ::uint N> 
+double estimateSPERRSSIMbasedonErrorBound(double error_bound,T * data, double sample_rate, size_t blocksize,std::vector<size_t> &dims,bool skip_outlier=false){//, int profiling=0,int var_first=0){
+
+    //error_bound: The abs error bound.
+    //data: The whole input data array. 
+    //sample rate: The rate of sampled data points (e.g. 0.01).
+    //blocksize: The sampled block size (e.g. 32).
+    //dims: the dimensions of the input data array (fastest last, e.g. for miranda data it is {256,384,384}).
+    //skip_outlier: whether skip the outlier correction (dewave and error correction).
+
+    std::vector< std::vector<T> > sampled_blocks;
+   
+    //size_t num_sampled_blocks;
+    //size_t per_block_ele_num;
+    //size_t ele_num;
+
+    QoZ::Config conf(1);//maybe a better way exist?
+    conf.setDims(dims.begin(),dims.end());
+    conf.sperr=1;
+    conf.wavelet=1;
+    conf.wavelet_rel_coeff=1.5;
+    //conf.profiling=profiling;
+    //conf.var_first=var_first;
+    conf.sampleBlockSize=blocksize;
+    conf.cmprAlgo=QoZ::ALGO_INTERP;
+    conf.tuningTarget=QoZ::TUNING_TARGET_CR;
+    conf.errorBoundMode=QoZ::EB_ABS;
+    conf.absErrorBound=error_bound;
+    if(skip_outlier)
+        conf.wavelet=2;
+    //if (conf.rng<0)
+     //   conf.rng=QoZ::data_range<T>(data,conf.num);
+    size_t totalblock_num=1;  
+    for(int i=0;i<N;i++){                      
+        totalblock_num*=(size_t)((conf.dims[i]-1)/conf.sampleBlockSize);
+    }
+
+
+    std::vector<std::vector<size_t> >starts;
+    if(conf.profiling){      
+        conf.profStride=conf.sampleBlockSize/4;
+        if(N==1){
+            QoZ::profiling_block_1d<T,N>(data,conf.dims,starts,blocksize,conf.absErrorBound,conf.profStride);
+        }
+        else if(N==2){
+            QoZ::profiling_block_2d<T,N>(data,conf.dims,starts,blocksize,conf.absErrorBound,conf.profStride);
+        }
+        else if (N==3){
+            QoZ::profiling_block_3d<T,N>(data,conf.dims,starts,blocksize,conf.absErrorBound,conf.profStride);
+        }
+       
+    }
+  
+
+    size_t num_filtered_blocks=starts.size();
+
+    sampleBlocks<T,N>(data,conf.dims,conf.sampleBlockSize,sampled_blocks,sample_rate,conf.profiling,starts,conf.var_first);
+   
+           
+    //num_sampled_blocks=sampled_blocks.size();
+    size_t per_block_ele_num=pow(blocksize+1,N);
+   // ele_num=num_sampled_blocks*per_block_ele_num;
+
+    std::vector<size_t> blockdims(N,blocksize+1);
+    conf.setDims(blockdims.begin(),blockdims.end());
+   
+
+
+    double est_ssim = SSIMTest<T,N>(conf, sampled_blocks);
+
+    return est_ssim;
+
+
+    /*
+    conf.dims=std::vector<size_t>(N,sampleBlockSize+1);
+    conf.num=per_block_ele_num;
+    std::vector<T> cur_block(per_block_ele_num,0);
+    */
+
+}
+
+template<class T, QoZ::uint N>
+double PSNRTest(const QoZ::Config &conf,const std::vector< std::vector<T> > & sampled_blocks, T value_range){
+    QoZ::Config testConfig(conf);
+    double square_error=0.0;
+    T maxValue = sampled_blocks[0][0];
+    T minValue = sampled_blocks[0][0];
+    double bitrate=0.0;
+    double metric=0.0;
+    size_t sampleBlockSize=testConfig.sampleBlockSize;
+    size_t num_sampled_blocks=sampled_blocks.size();
+    size_t per_block_ele_num=pow(sampleBlockSize+1,N);
+    size_t ele_num=num_sampled_blocks*per_block_ele_num;
+    std::vector<T> cur_block(testConfig.num,0);
+    size_t idx=0;   
+    size_t totalOutSize=0;
+
+    double estPSNR = 0.0;
+    size_t num_psnr_samples = 0;
+    
+    if(num_sampled_blocks == 0){
+        std::cerr << "Warning: Num sampled blocks is zero! Consider using a smaller blocksize."<< std::endl;
+    }
+                           
+    for (int k=0;k<num_sampled_blocks;k++){
+        size_t sampleOutSize;
+        std::vector<T> cur_block(testConfig.num);
+       
+        std::copy(sampled_blocks[k].begin(),sampled_blocks[k].end(),cur_block.begin());
+
+        char* cmprData = SPERR_Compress<T,N>(testConfig,cur_block.data(),sampleOutSize);
+        T* decData = new T[per_block_ele_num];
+        SPERR_Decompress<T,N>(cmprData, sampleOutSize, decData);
+
+        // square_error = 0.0;
+        maxValue = sampled_blocks[k][0];
+        for(int j = 0; j < per_block_ele_num; j++){
+            square_error += pow(decData[j] - sampled_blocks[k][j], 2);
+            if(sampled_blocks[k][j] > maxValue){
+                maxValue = sampled_blocks[k][j];
+            }
+            if(sampled_blocks[k][j] < minValue){
+                minValue = sampled_blocks[k][j];
+            }
+        }
+
+        // double eps = 1e-16;
+        // double mse = square_error / per_block_ele_num;
+        // // T value_range = maxValue - minValue;
+        // double psnr = -20.0*log10((sqrt(mse) / value_range) + eps);
+
+        
+
+        // std::cout << square_error << " " << mse << " " << psnr << std::endl;
+
+        // if(std::isnan(psnr)){
+        //     // no block error, simulate high psnr
+        //     // std::cout << "max " << maxValue << std::endl;
+        //     psnr = 320.0;
+        // }
+        
+        // estPSNR += psnr;
+        // num_psnr_samples++;
+        
+
+        delete[] decData;
+        delete[] cmprData;
+        
+                
+    }
+                
+    double eps = 1e-16;
+    double mse = square_error / ele_num;
+	estPSNR = -20.0*log10((sqrt(mse) / value_range) + eps);   
+    // std::cout << estPSNR << "\n";  
+    // estPSNR /= num_psnr_samples;
+    // std::cout << estPSNR << std::endl;  
+
+    // std::cout << "Num blocks dropped / total: " << (num_sampled_blocks - num_psnr_samples) << " / " << num_sampled_blocks << std::endl;
+
+    return estPSNR;
+}
+
+template<class T, QoZ::uint N> 
+double estimateSPERRPSNRbasedonErrorBound(double error_bound,T * data, double sample_rate, size_t blocksize,std::vector<size_t> &dims,bool skip_outlier=false){//, int profiling=0,int var_first=0){
+
+    //error_bound: The abs error bound.
+    //data: The whole input data array. 
+    //sample rate: The rate of sampled data points (e.g. 0.01).
+    //blocksize: The sampled block size (e.g. 32).
+    //dims: the dimensions of the input data array (fastest last, e.g. for miranda data it is {256,384,384}).
+    //skip_outlier: whether skip the outlier correction (dewave and error correction).
+
+    std::vector< std::vector<T> > sampled_blocks;
+   
+    //size_t num_sampled_blocks;
+    //size_t per_block_ele_num;
+    //size_t ele_num;
+
+    QoZ::Config conf(1);//maybe a better way exist?
+    conf.setDims(dims.begin(),dims.end());
+    conf.sperr=1;
+    conf.wavelet=1;
+    conf.wavelet_rel_coeff=1.5;
+    //conf.profiling=profiling;
+    //conf.var_first=var_first;
+    conf.sampleBlockSize=blocksize;
+    conf.cmprAlgo=QoZ::ALGO_INTERP;
+    conf.tuningTarget=QoZ::TUNING_TARGET_CR;
+    conf.errorBoundMode=QoZ::EB_ABS;
+    conf.absErrorBound=error_bound;
+    if(skip_outlier)
+        conf.wavelet=2;
+    //if (conf.rng<0)
+     //   conf.rng=QoZ::data_range<T>(data,conf.num);
+    size_t totalblock_num=1;  
+    for(int i=0;i<N;i++){                      
+        totalblock_num*=(size_t)((conf.dims[i]-1)/conf.sampleBlockSize);
+    }
+
+    T max = data[0];
+    T min = data[0];
+    for(int i = 0; i < conf.num; i++){
+        if(data[i]>max) max = data[i];
+        if(data[i]<min) min=data[i];
+    }
+
+
+    std::vector<std::vector<size_t> >starts;
+    if(conf.profiling){      
+        conf.profStride=conf.sampleBlockSize/4;
+        if(N==1){
+            QoZ::profiling_block_1d<T,N>(data,conf.dims,starts,blocksize,conf.absErrorBound,conf.profStride);
+        }
+        else if(N==2){
+            QoZ::profiling_block_2d<T,N>(data,conf.dims,starts,blocksize,conf.absErrorBound,conf.profStride);
+        }
+        else if (N==3){
+            QoZ::profiling_block_3d<T,N>(data,conf.dims,starts,blocksize,conf.absErrorBound,conf.profStride);
+        }
+       
+    }
+  
+
+    size_t num_filtered_blocks=starts.size();
+
+    sampleBlocks<T,N>(data,conf.dims,conf.sampleBlockSize,sampled_blocks,sample_rate,conf.profiling,starts,conf.var_first);
+   
+           
+    //num_sampled_blocks=sampled_blocks.size();
+    size_t per_block_ele_num=pow(blocksize+1,N);
+   // ele_num=num_sampled_blocks*per_block_ele_num;
+
+    std::vector<size_t> blockdims(N,blocksize+1);
+    conf.setDims(blockdims.begin(),blockdims.end());
+   
+
+    T value_range = max - min;
+    double est_psnr = PSNRTest<T,N>(conf, sampled_blocks, value_range);
+
+    return est_psnr;
+
+
+    /*
+    conf.dims=std::vector<size_t>(N,sampleBlockSize+1);
+    conf.num=per_block_ele_num;
+    std::vector<T> cur_block(per_block_ele_num,0);
+    */
+
+}
+
+template<class T, QoZ::uint N>
 std::pair<double,double> CompressTest(const QoZ::Config &conf,const std::vector< std::vector<T> > & sampled_blocks){
     QoZ::Config testConfig(conf);
     double square_error=0.0;
@@ -774,16 +1141,29 @@ std::pair<double,double> CompressTest(const QoZ::Config &conf,const std::vector<
         auto cmprData=SPERR_Compress<T,N>(testConfig,cur_block.data(),sampleOutSize);
         
         totalOutSize+=sampleOutSize;
+
+        double curr_bitrate=8*double(sampleOutSize)/per_block_ele_num;
+        if(testConfig.wavelet==1){
+            curr_bitrate*=testConfig.waveletBrFix;
+        } 
+        else if(testConfig.wavelet>1){
+            curr_bitrate*=testConfig.waveletBrFix2;
+        }  
+
+        bitrate += curr_bitrate;
                 
     }
+
+    // take average bitrate over blocks
+    bitrate = bitrate / num_sampled_blocks;
                 
-    bitrate=8*double(totalOutSize)/ele_num;
-    if(testConfig.wavelet==1){
-        bitrate*=testConfig.waveletBrFix;
-    } 
-    else if(testConfig.wavelet>1){
-        bitrate*=testConfig.waveletBrFix2;
-    }       
+    // bitrate=8*double(totalOutSize)/ele_num;
+    // if(testConfig.wavelet==1){
+    //     bitrate*=testConfig.waveletBrFix;
+    // } 
+    // else if(testConfig.wavelet>1){
+    //     bitrate*=testConfig.waveletBrFix2;
+    // }       
 
     //std::cout<<bitrate<<" "<<metric<<std::endl;
     return std::pair(bitrate,metric);
@@ -832,7 +1212,10 @@ double estimateSPERRCRbasedonErrorBound(double error_bound,T * data, double samp
     std::vector<std::vector<size_t> >starts;
     if(conf.profiling){      
         conf.profStride=conf.sampleBlockSize/4;
-        if(N==2){
+        if(N==1){
+            QoZ::profiling_block_1d<T,N>(data,conf.dims,starts,blocksize,conf.absErrorBound,conf.profStride);
+        }
+        else if(N==2){
             QoZ::profiling_block_2d<T,N>(data,conf.dims,starts,blocksize,conf.absErrorBound,conf.profStride);
         }
         else if (N==3){

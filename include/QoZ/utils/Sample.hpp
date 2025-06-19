@@ -182,6 +182,41 @@ namespace QoZ {
     }
 
 
+    template<class T, uint N>
+    inline void
+    profiling_block_1d(T *data, std::vector<size_t> &dims, std::vector< std::vector<size_t> > &starts,size_t block_size, double abseb,size_t stride=0) {
+        assert(dims.size() == N);
+        
+        size_t dimx=dims[0];
+        
+        for (size_t i = 0; i < dimx-block_size; i+=block_size) {
+                
+            size_t start_idx=i;
+            T min=data[start_idx];
+            T max=data[start_idx];
+            for (int ii=0;ii<=block_size;ii+=block_size){
+                size_t cur_idx=start_idx+ii;
+                T cur_value=data[cur_idx];
+                if (cur_value<min)
+                    min=cur_value;
+                else if (cur_value>max)
+                    max=cur_value;
+
+            }
+                
+            if (max-min>abseb){
+                size_t a[1]={i};
+                starts.push_back(std::vector<size_t>(a,a+1));
+            }
+
+        }
+        
+//        auto sampling_time = timer.stop();
+//        printf("Generate sampling data, block = %lu percent = %.3f%% Time = %.3f \n", sampling_block, sample_num * 100.0 / num,
+//               sampling_time);
+       // return sampling_data;
+    }
+
    
     
 

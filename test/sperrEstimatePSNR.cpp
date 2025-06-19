@@ -9,36 +9,67 @@
 
 using namespace QoZ;
 
+template<class T>
+float calc_psnr(T* orig, T* dec, size_t nbEle){
+	float sq_err = 0;
+	float min = orig[0];
+	float max = orig[0];
+	for(int i = 0; i < nbEle; i++){
+		sq_err += pow((orig[i] - dec[i]), 2);
+		if (orig[i] < min)
+			min = orig[i];
+		if (orig[i] > max)
+			max = orig[i];
+	}
+	float mse = sq_err / (float) nbEle;
+	// for the case where mse == 0 we add a small constant to avoid numerical errors
+	float eps = 1e-16;
+	float value_range = max - min;
+	float psnr = -20.0*log10((sqrt(mse) / value_range) + eps);
+	// printf("MSE %.10f, MAX %f, NBELE %i\n", mse, max, nbEle);
+
+	return psnr;
+}
+
 // params for experiments
 size_t blocksizes[] = {16,32,64};
 bool skip_setting[] = {false, true};
 double sample_rates[] = {0.01, 0.10, 0.20, 0.30, 0.40};
 
 template<class T, uint N>
-std::vector<double> estimate_compress(Config conf, T *data, double abs, std::string file, std::ofstream& output, std::ofstream& sampleout){
+std::vector<double> estimate_psnr(Config conf, T *data, double abs, size_t nbEle, std::string file, std::ofstream& output, std::ofstream& sampleout){
 	conf.errorBoundMode = QoZ::EB_ABS;
     conf.absErrorBound = abs;
 
 	std::vector<double> results;
 
-	char ebstr[2048];
-	std::sprintf(ebstr, "%0.10f", abs);
-
 	size_t outSize = 0;
-	printf("startcmpr\n");
+	printf("startpsnr\n");
 	Timer timer(true);
-	auto cmpData = SPERR_Compress<T, N>(conf, data, outSize);
+	T *data_ = new T[nbEle];
+	memcpy(data_, data, sizeof(T)*nbEle);
+	char* cmpData = SPERR_Compress<T, N>(conf, data, outSize);
+	printf("cmp\n");
+	T* decData = new T[nbEle];
+	SPERR_Decompress<T, N>(cmpData, outSize, decData);
+	printf("dcmp\n");
+	float truePSNR = calc_psnr(data, decData, nbEle);
+	printf("psnr\n");
 	double dur = timer.stop();
 
-	printf("cmpr time: %f s\n\n", dur);
-
-	double trueCR = conf.num * sizeof(T) * 1.0 / outSize;
-
-	output << file << "," << ebstr << "," << std::to_string(trueCR) << "," << std::to_string(dur) << "\n" << std::flush;
-
+	delete[] data_;
+	delete[] decData;
 	delete[] cmpData;
 
-	// results.push_back(trueCR);
+	char ebstr[2048];
+	std::sprintf(ebstr, "%0.10f", abs);
+	output << file << "," << ebstr << "," << std::to_string(truePSNR) << "," << std::to_string(dur) << "\n" << std::flush;
+
+
+	printf("psnr calc time: %f s\n\n", dur);
+
+	// exit(0);
+	// results.push_back(truePSNR);
 	// results.push_back(dur);
 
 	for(double sample_rate : sample_rates){
@@ -55,14 +86,16 @@ std::vector<double> estimate_compress(Config conf, T *data, double abs, std::str
 				printf("copy time: %f s\n", cpydur);
 
 				timer.start();
-				double estCR = estimateSPERRCRbasedonErrorBound<T,N>(abs, data_cpy, sample_rate, bs, conf.dims, skip_outlier);
+				double estPSNR = estimateSPERRPSNRbasedonErrorBound<T,N>(abs, data_cpy, sample_rate, bs, conf.dims, skip_outlier);
 				double estDur = timer.stop();
+
+				printf("psnr vs est psnr\n%f\t%f\n", truePSNR, estPSNR);
 
 				printf("est time: %f s\n\n", estDur);
 
 				// timer.start();
-				// results.push_back(estCR);
-				// timer.stop("push to estCR");
+				// results.push_back(estPSNR);
+				// timer.stop("push to estPSNR");
 				// timer.start();
 				// results.push_back(estDur);
 				// timer.stop("push to estDUR");
@@ -74,8 +107,7 @@ std::vector<double> estimate_compress(Config conf, T *data, double abs, std::str
 				char blockstr[256];
 				std::sprintf(blockstr, "%i", bs);
 
-				sampleout << file << "," << ebstr << "," << ratestr << "," << skipstr << "," << blockstr << "," << std::to_string(estCR) << "," << std::to_string(estDur) << "\n" << std::flush;
-
+				sampleout << file << "," << ebstr << "," << ratestr << "," << skipstr << "," << blockstr << "," << std::to_string(estPSNR) << "," << std::to_string(estDur) << "\n" << std::flush;
 
 
 
@@ -83,6 +115,8 @@ std::vector<double> estimate_compress(Config conf, T *data, double abs, std::str
 			}
 		}
 	}
+	
+	
 
 	return results;
 
@@ -110,6 +144,7 @@ int main(int argc, char *argv[]) {
 	r1 = atoi(argv[2]);
 	r2 = atoi(argv[3]);
 	r3 = atoi(argv[4]);
+	size_t nbEle = r1;
 	tag = argv[5];
 
 	size_t dim;
@@ -122,9 +157,11 @@ int main(int argc, char *argv[]) {
 	}
 	else if(r3 == 0){
 		dim = 2;
+		nbEle *= r2;
 	} 
 	else {
 		dim = 3;
+		nbEle *= r2*r3;
 	}
 
 
@@ -184,13 +221,13 @@ int main(int argc, char *argv[]) {
 			printf("branch\n");
 			if (dim == 1) {
 				Config config(r1);
-				results = estimate_compress<float, 1>(config, data_, eb_, files[i], output, sampleout);
+				results = estimate_psnr<float, 1>(config, data_, eb_, nbEle, files[i], output, sampleout);
 			} else if (dim == 2) {
 				Config config(r2, r1);
-				results = estimate_compress<float, 2>(config, data_, eb_, files[i], output, sampleout);
+				results = estimate_psnr<float, 2>(config, data_, eb_, nbEle, files[i], output, sampleout);
 			} else if (dim == 3) {
 				Config config(r3, r2, r1);
-				results = estimate_compress<float, 3>(config, data_, eb_, files[i], output, sampleout);
+				results = estimate_psnr<float, 3>(config, data_, eb_, nbEle, files[i], output, sampleout);
 			}
 
 			printf("exit branch\n");
